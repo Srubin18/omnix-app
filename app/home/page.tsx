@@ -34,14 +34,13 @@ export default function HomePage() {
   const [isLoading, setIsLoading] = useState(true);
   const [stats, setStats] = useState<any>(null);
   
-  // Room creation
   const [roomName, setRoomName] = useState("");
   const [currentRoom, setCurrentRoom] = useState<Room | null>(null);
   const [myRooms, setMyRooms] = useState<Room[]>([]);
   
-  // Prediction creation
   const [newQuestion, setNewQuestion] = useState("");
   const [aiLoading, setAiLoading] = useState(false);
+  const [saving, setSaving] = useState(false);
   const [timeLeft, setTimeLeft] = useState<{[key: string]: string}>({});
 
   useEffect(() => {
@@ -57,7 +56,6 @@ export default function HomePage() {
       setUsername(user.username || user.name || "User");
       setStats(user.stats || { points: 0, level: 1, roomsCreated: 0 });
       
-      // Load user's rooms
       const roomsStr = localStorage.getItem(`omnix-my-rooms-${user.username}`);
       if (roomsStr) {
         setMyRooms(JSON.parse(roomsStr));
@@ -69,13 +67,12 @@ export default function HomePage() {
     }
   }, [router]);
 
-  // Update countdown timers
   useEffect(() => {
     const interval = setInterval(() => {
-      if (!currentRoom) return;
-      
+      const allPredictions = [...(currentRoom?.predictions || []), ...myRooms.flatMap(r => r.predictions)];
       const newTimeLeft: {[key: string]: string} = {};
-      currentRoom.predictions.forEach(pred => {
+      
+      allPredictions.forEach(pred => {
         const deadline = new Date(pred.deadline).getTime();
         const now = Date.now();
         const diff = deadline - now;
@@ -93,7 +90,7 @@ export default function HomePage() {
     }, 1000);
 
     return () => clearInterval(interval);
-  }, [currentRoom]);
+  }, [currentRoom, myRooms]);
 
   const createRoom = () => {
     if (!roomName.trim()) {
@@ -114,7 +111,6 @@ export default function HomePage() {
     setCurrentRoom(newRoom);
     setRoomName("");
 
-    // Update stats
     const userStr = localStorage.getItem("omnix-user");
     if (userStr) {
       const user = JSON.parse(userStr);
@@ -151,7 +147,6 @@ export default function HomePage() {
     setCurrentRoom(updatedRoom);
     setNewQuestion("");
 
-    // Award points
     const userStr = localStorage.getItem("omnix-user");
     if (userStr) {
       const user = JSON.parse(userStr);
@@ -171,7 +166,7 @@ export default function HomePage() {
     setCurrentRoom(updatedRoom);
   };
 
-  const shareOnWhatsApp = () => {
+  const shareOnWhatsApp = async () => {
     if (!currentRoom) return;
     
     if (currentRoom.predictions.length === 0) {
@@ -179,22 +174,37 @@ export default function HomePage() {
       return;
     }
 
-    // Save room to localStorage
-    localStorage.setItem(`omnix-room-${currentRoom.id}`, JSON.stringify(currentRoom));
-    
-    // Save to my rooms
-    const updatedRooms = [...myRooms, { ...currentRoom, shared: true }];
-    setMyRooms(updatedRooms);
-    localStorage.setItem(`omnix-my-rooms-${username}`, JSON.stringify(updatedRooms));
+    setSaving(true);
 
-    // Create WhatsApp message
-    const predictionsList = currentRoom.predictions.map((p, i) => `${i + 1}. ${p.question}`).join("\n");
-    const message = `🔮 Join my Omnix prediction room!\n\n📝 *${currentRoom.name}*\n\n${predictionsList}\n\n⏳ You have 24 hours to predict!\n\n👉 Click to join:\nhttps://omnix-app.vercel.app/room/${currentRoom.id}`;
-    
-    window.open(`https://wa.me/?text=${encodeURIComponent(message)}`, "_blank");
-    
-    // Reset for new room
-    setCurrentRoom(null);
+    try {
+      // Save room to database
+      const response = await fetch("/api/rooms", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ room: currentRoom })
+      });
+
+      if (!response.ok) {
+        throw new Error("Failed to save room");
+      }
+
+      // Save to local storage for My Rooms
+      const updatedRooms = [...myRooms, { ...currentRoom, shared: true }];
+      setMyRooms(updatedRooms);
+      localStorage.setItem(`omnix-my-rooms-${username}`, JSON.stringify(updatedRooms));
+
+      // Create WhatsApp message
+      const predictionsList = currentRoom.predictions.map((p, i) => `${i + 1}. ${p.question}`).join("\n");
+      const message = `🔮 Join my Omnix prediction room!\n\n📝 *${currentRoom.name}*\n\n${predictionsList}\n\n⏳ You have 24 hours to predict!\n\n👉 Click to join:\nhttps://omnix-app.vercel.app/room/${currentRoom.id}`;
+      
+      window.open(`https://wa.me/?text=${encodeURIComponent(message)}`, "_blank");
+      
+      setCurrentRoom(null);
+    } catch (error) {
+      alert("Failed to save room. Please try again.");
+    } finally {
+      setSaving(false);
+    }
   };
 
   const sendReminder = (room: Room, prediction: Prediction) => {
@@ -202,7 +212,7 @@ export default function HomePage() {
     window.open(`https://wa.me/?text=${encodeURIComponent(message)}`, "_blank");
   };
 
-  const resolveWithAI = async (roomId: string, prediction: Prediction) => {
+  const resolveWithAI = async (room: Room, prediction: Prediction) => {
     const confirmed = confirm(`🤖 Use AI to find the answer for:\n\n"${prediction.question}"\n\nContinue?`);
     if (!confirmed) return;
 
@@ -221,7 +231,7 @@ export default function HomePage() {
       if (data.answer) {
         const useAnswer = confirm(`🤖 AI Found:\n\n"${data.answer}"\n\nSource: ${data.source || "Web search"}\n\nUse this as the correct answer?`);
         if (useAnswer) {
-          resolvePrediction(roomId, prediction.id, data.answer);
+          resolvePrediction(room.id, prediction.id, data.answer);
         }
       } else {
         alert("❌ Couldn't find a definitive answer. Please resolve manually.");
@@ -232,7 +242,7 @@ export default function HomePage() {
     }
   };
 
-  const resolvePrediction = (roomId: string, predictionId: string, answer: string) => {
+  const resolvePrediction = async (roomId: string, predictionId: string, answer: string) => {
     const updatedRooms = myRooms.map(room => {
       if (room.id === roomId) {
         room.predictions = room.predictions.map(pred => {
@@ -242,8 +252,13 @@ export default function HomePage() {
           }
           return pred;
         });
-        // Update in localStorage too
-        localStorage.setItem(`omnix-room-${room.id}`, JSON.stringify(room));
+        
+        // Update in database
+        fetch("/api/rooms", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ room })
+        });
       }
       return room;
     });
@@ -251,7 +266,6 @@ export default function HomePage() {
     setMyRooms(updatedRooms);
     localStorage.setItem(`omnix-my-rooms-${username}`, JSON.stringify(updatedRooms));
 
-    // Award points
     const userStr = localStorage.getItem("omnix-user");
     if (userStr) {
       const user = JSON.parse(userStr);
@@ -273,12 +287,11 @@ export default function HomePage() {
     <div style={{ minHeight: "100vh", background: "#000", padding: "20px" }}>
       <div style={{ maxWidth: "900px", margin: "0 auto", paddingTop: "20px" }}>
 
-        {/* AI Loading Overlay */}
-        {aiLoading && (
+        {(aiLoading || saving) && (
           <div style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, background: "rgba(0,0,0,0.9)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000 }}>
             <div style={{ textAlign: "center" }}>
-              <div style={{ fontSize: "48px", marginBottom: "15px" }}>🤖</div>
-              <p style={{ color: "#8A2BE2", fontSize: "16px" }}>Searching for answer...</p>
+              <div style={{ fontSize: "48px", marginBottom: "15px" }}>{aiLoading ? "🤖" : "💾"}</div>
+              <p style={{ color: "#8A2BE2", fontSize: "16px" }}>{aiLoading ? "Searching for answer..." : "Saving room..."}</p>
             </div>
           </div>
         )}
@@ -307,7 +320,7 @@ export default function HomePage() {
           </div>
         </div>
 
-        {/* Create New Room Section */}
+        {/* Create Room */}
         {!currentRoom ? (
           <div style={{ background: "#121212", padding: "30px", borderRadius: "16px", marginBottom: "20px", border: "1px solid rgba(138,43,226,0.2)" }}>
             <h2 style={{ color: "#FFF", fontSize: "20px", marginBottom: "8px" }}>🔮 Create Prediction Room</h2>
@@ -332,7 +345,6 @@ export default function HomePage() {
             </div>
           </div>
         ) : (
-          /* Room Editor - Add Predictions */
           <div style={{ background: "#121212", padding: "30px", borderRadius: "16px", marginBottom: "20px", border: "1px solid rgba(0,230,163,0.3)" }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "20px" }}>
               <div>
@@ -347,7 +359,6 @@ export default function HomePage() {
               </button>
             </div>
 
-            {/* Add Prediction Input */}
             <div style={{ display: "flex", gap: "10px", marginBottom: "20px" }}>
               <input
                 type="text"
@@ -365,7 +376,6 @@ export default function HomePage() {
               </button>
             </div>
 
-            {/* Predictions List */}
             {currentRoom.predictions.length > 0 && (
               <div style={{ marginBottom: "20px" }}>
                 <p style={{ color: "rgba(255,255,255,0.6)", fontSize: "13px", marginBottom: "10px" }}>
@@ -391,9 +401,9 @@ export default function HomePage() {
               </div>
             )}
 
-            {/* Share Button */}
             <button
               onClick={shareOnWhatsApp}
+              disabled={currentRoom.predictions.length === 0 || saving}
               style={{
                 width: "100%",
                 padding: "18px",
@@ -409,15 +419,14 @@ export default function HomePage() {
                 justifyContent: "center",
                 gap: "10px"
               }}
-              disabled={currentRoom.predictions.length === 0}
             >
               <span>📱</span>
-              {currentRoom.predictions.length > 0 ? "Share on WhatsApp" : "Add predictions to share"}
+              {saving ? "Saving..." : currentRoom.predictions.length > 0 ? "Share on WhatsApp" : "Add predictions to share"}
             </button>
           </div>
         )}
 
-        {/* My Active Rooms */}
+        {/* My Rooms */}
         {myRooms.length > 0 && (
           <div style={{ background: "#121212", padding: "25px", borderRadius: "16px", border: "1px solid rgba(138,43,226,0.2)" }}>
             <h2 style={{ color: "#FFF", fontSize: "18px", marginBottom: "20px" }}>📊 My Rooms ({myRooms.length})</h2>
@@ -430,7 +439,6 @@ export default function HomePage() {
                     <span style={{ color: "rgba(255,255,255,0.4)", fontSize: "12px" }}>ID: {room.id}</span>
                   </div>
                   
-                  {/* Predictions in this room */}
                   <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
                     {room.predictions.map(pred => {
                       const isExpired = timeLeft[pred.id] === "Expired" || new Date(pred.deadline) < new Date();
@@ -456,7 +464,6 @@ export default function HomePage() {
                             )}
                           </div>
                           
-                          {/* Creator Actions */}
                           {!pred.resolved && (
                             <div style={{ marginTop: "12px", display: "flex", gap: "8px", flexWrap: "wrap" }}>
                               <button
@@ -475,7 +482,7 @@ export default function HomePage() {
                                 ✍️ Manual
                               </button>
                               <button
-                                onClick={() => resolveWithAI(room.id, pred)}
+                                onClick={() => resolveWithAI(room, pred)}
                                 style={{ padding: "8px 12px", background: "rgba(138,43,226,0.1)", color: "#8A2BE2", border: "1px solid rgba(138,43,226,0.3)", borderRadius: "6px", fontSize: "12px", cursor: "pointer" }}
                               >
                                 🤖 Use AI
@@ -487,7 +494,6 @@ export default function HomePage() {
                     })}
                   </div>
                   
-                  {/* Share Again */}
                   <button
                     onClick={() => {
                       const predictionsList = room.predictions.map((p, i) => `${i + 1}. ${p.question}`).join("\n");
