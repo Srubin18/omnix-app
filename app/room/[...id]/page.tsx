@@ -8,47 +8,52 @@ export default function RoomPage() {
   const router = useRouter();
   const roomId = Array.isArray(params?.id) ? params.id[0] : params?.id || "unknown";
   const [username, setUsername] = useState("");
-  const [isLoading, setIsLoading] = useState(true);
+  const [isLoggedIn, setIsLoggedIn] = useState(false);
+  const [checkingAuth, setCheckingAuth] = useState(true);
 
   useEffect(() => {
     const userStr = localStorage.getItem("omnix-user");
     
     if (!userStr) {
       localStorage.setItem("omnix-pending-room", roomId);
-      router.push("/");
-      return;
-    }
-
-    try {
-      const user = JSON.parse(userStr);
-      setUsername(user.username || user.name || "User");
-      setIsLoading(false);
-      
-      if (!user.stats) {
-        user.stats = {
-          totalPredictions: 0,
-          correctPredictions: 0,
-          roomsCreated: 0,
-          roomsJoined: 1,
-          currentStreak: 0,
-          longestStreak: 0,
-          points: 10,
-          level: 1,
-          lastActiveDate: new Date().toISOString()
-        };
-      } else {
-        user.stats.points = (user.stats.points || 0) + 10;
-        user.stats.roomsJoined = (user.stats.roomsJoined || 0) + 1;
-        user.stats.level = Math.floor(user.stats.points / 100) + 1;
+      setCheckingAuth(false);
+      setIsLoggedIn(false);
+    } else {
+      try {
+        const user = JSON.parse(userStr);
+        setUsername(user.username || user.name || "User");
+        setIsLoggedIn(true);
+        setCheckingAuth(false);
+        
+        // Award points
+        if (!user.stats) {
+          user.stats = {
+            totalPredictions: 0,
+            correctPredictions: 0,
+            roomsCreated: 0,
+            roomsJoined: 1,
+            currentStreak: 0,
+            longestStreak: 0,
+            points: 10,
+            level: 1,
+            lastActiveDate: new Date().toISOString()
+          };
+        } else {
+          user.stats.points = (user.stats.points || 0) + 10;
+          user.stats.roomsJoined = (user.stats.roomsJoined || 0) + 1;
+          user.stats.level = Math.floor(user.stats.points / 100) + 1;
+        }
+        localStorage.setItem("omnix-user", JSON.stringify(user));
+        localStorage.removeItem("omnix-pending-room");
+      } catch (error) {
+        setCheckingAuth(false);
+        setIsLoggedIn(false);
       }
-      localStorage.setItem("omnix-user", JSON.stringify(user));
-      localStorage.removeItem("omnix-pending-room");
-    } catch (error) {
-      router.push("/");
     }
-  }, [roomId, router]);
+  }, [roomId]);
 
-  if (isLoading) {
+  // Still checking auth
+  if (checkingAuth) {
     return (
       <div style={{
         minHeight: "100vh",
@@ -57,11 +62,59 @@ export default function RoomPage() {
         justifyContent: "center",
         background: "#000000"
       }}>
-        <p style={{ color: "#8A2BE2", fontSize: "18px" }}>Loading room...</p>
+        <p style={{ color: "#8A2BE2", fontSize: "18px" }}>Loading...</p>
       </div>
     );
   }
 
+  // Not logged in - show login prompt
+  if (!isLoggedIn) {
+    return (
+      <div style={{
+        minHeight: "100vh",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        background: "#000000",
+        padding: "20px"
+      }}>
+        <div style={{
+          background: "#121212",
+          padding: "40px",
+          borderRadius: "16px",
+          textAlign: "center",
+          maxWidth: "400px",
+          border: "1px solid rgba(138, 43, 226, 0.3)"
+        }}>
+          <div style={{ fontSize: "48px", marginBottom: "20px" }}>🔮</div>
+          <h2 style={{ color: "#FFFFFF", marginBottom: "10px" }}>Join Prediction Room</h2>
+          <p style={{ color: "rgba(255,255,255,0.6)", marginBottom: "25px", fontSize: "14px" }}>
+            Room ID: {roomId}
+          </p>
+          <p style={{ color: "rgba(255,255,255,0.5)", marginBottom: "25px", fontSize: "14px" }}>
+            Please login first to join this room
+          </p>
+          <button
+            onClick={() => router.push("/")}
+            style={{
+              padding: "15px 40px",
+              background: "linear-gradient(135deg, #8A2BE2, #00AEEF)",
+              color: "white",
+              border: "none",
+              borderRadius: "8px",
+              fontSize: "16px",
+              fontWeight: "600",
+              cursor: "pointer"
+            }}
+          >
+            Login to Join
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  // Logged in - show room
   return (
     <div style={{
       minHeight: "100vh",
