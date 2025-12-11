@@ -42,6 +42,7 @@ export default function HomePage() {
   const [aiLoading, setAiLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [timeLeft, setTimeLeft] = useState<{[key: string]: string}>({});
+  const [expandedRoom, setExpandedRoom] = useState<string | null>(null);
 
   useEffect(() => {
     const userStr = localStorage.getItem("omnix-user");
@@ -56,9 +57,11 @@ export default function HomePage() {
       setUsername(user.username || user.name || "User");
       setStats(user.stats || { points: 0, level: 1, roomsCreated: 0 });
       
-      const roomsStr = localStorage.getItem(`omnix-my-rooms-${user.username}`);
-      if (roomsStr) {
-        setMyRooms(JSON.parse(roomsStr));
+      // Load room IDs from localStorage, then fetch from database
+      const roomIdsStr = localStorage.getItem(`omnix-room-ids-${user.username}`);
+      if (roomIdsStr) {
+        const roomIds = JSON.parse(roomIdsStr);
+        fetchRoomsFromDatabase(roomIds);
       }
       
       setIsLoading(false);
@@ -66,6 +69,33 @@ export default function HomePage() {
       router.push("/");
     }
   }, [router]);
+
+  const fetchRoomsFromDatabase = async (roomIds: string[]) => {
+    const rooms: Room[] = [];
+    for (const id of roomIds) {
+      try {
+        const response = await fetch(`/api/rooms?id=${id}`);
+        if (response.ok) {
+          const data = await response.json();
+          if (data.room) {
+            const room = typeof data.room === "string" ? JSON.parse(data.room) : data.room;
+            rooms.push(room);
+          }
+        }
+      } catch (error) {
+        console.error("Error fetching room:", id);
+      }
+    }
+    setMyRooms(rooms);
+  };
+
+  const refreshRooms = async () => {
+    const roomIdsStr = localStorage.getItem(`omnix-room-ids-${username}`);
+    if (roomIdsStr) {
+      const roomIds = JSON.parse(roomIdsStr);
+      await fetchRoomsFromDatabase(roomIds);
+    }
+  };
 
   useEffect(() => {
     const interval = setInterval(() => {
@@ -146,14 +176,6 @@ export default function HomePage() {
 
     setCurrentRoom(updatedRoom);
     setNewQuestion("");
-
-    const userStr = localStorage.getItem("omnix-user");
-    if (userStr) {
-      const user = JSON.parse(userStr);
-      user.stats.points = (user.stats.points || 0) + 15;
-      localStorage.setItem("omnix-user", JSON.stringify(user));
-      setStats(user.stats);
-    }
   };
 
   const removePrediction = (predId: string) => {
@@ -177,7 +199,6 @@ export default function HomePage() {
     setSaving(true);
 
     try {
-      // Save room to database
       const response = await fetch("/api/rooms", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -188,12 +209,16 @@ export default function HomePage() {
         throw new Error("Failed to save room");
       }
 
-      // Save to local storage for My Rooms
-      const updatedRooms = [...myRooms, { ...currentRoom, shared: true }];
-      setMyRooms(updatedRooms);
-      localStorage.setItem(`omnix-my-rooms-${username}`, JSON.stringify(updatedRooms));
+      // Save room ID to localStorage
+      const roomIdsStr = localStorage.getItem(`omnix-room-ids-${username}`);
+      const roomIds = roomIdsStr ? JSON.parse(roomIdsStr) : [];
+      if (!roomIds.includes(currentRoom.id)) {
+        roomIds.push(currentRoom.id);
+        localStorage.setItem(`omnix-room-ids-${username}`, JSON.stringify(roomIds));
+      }
 
-      // Create WhatsApp message
+      setMyRooms([...myRooms, { ...currentRoom, shared: true }]);
+
       const predictionsList = currentRoom.predictions.map((p, i) => `${i + 1}. ${p.question}`).join("\n");
       const message = `🔮 Join my Omnix prediction room!\n\n📝 *${currentRoom.name}*\n\n${predictionsList}\n\n⏳ You have 24 hours to predict!\n\n👉 Click to join:\nhttps://omnix-app.vercel.app/room/${currentRoom.id}`;
       
@@ -245,26 +270,29 @@ export default function HomePage() {
   const resolvePrediction = async (roomId: string, predictionId: string, answer: string) => {
     const updatedRooms = myRooms.map(room => {
       if (room.id === roomId) {
-        room.predictions = room.predictions.map(pred => {
-          if (pred.id === predictionId) {
-            pred.resolved = true;
-            pred.correctAnswer = answer;
-          }
-          return pred;
-        });
+        const updatedRoom = {
+          ...room,
+          predictions: room.predictions.map(pred => {
+            if (pred.id === predictionId) {
+              return { ...pred, resolved: true, correctAnswer: answer };
+            }
+            return pred;
+          })
+        };
         
         // Update in database
         fetch("/api/rooms", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ room })
+          body: JSON.stringify({ room: updatedRoom })
         });
+        
+        return updatedRoom;
       }
       return room;
     });
     
     setMyRooms(updatedRooms);
-    localStorage.setItem(`omnix-my-rooms-${username}`, JSON.stringify(updatedRooms));
 
     const userStr = localStorage.getItem("omnix-user");
     if (userStr) {
@@ -273,6 +301,15 @@ export default function HomePage() {
       localStorage.setItem("omnix-user", JSON.stringify(user));
       setStats(user.stats);
     }
+  };
+
+  const getResponseStats = (responses: PredictionResponse[]) => {
+    const stats: {[key: string]: number} = {};
+    responses.forEach(r => {
+      const answer = r.answer.toLowerCase().trim();
+      stats[answer] = (stats[answer] || 0) + 1;
+    });
+    return stats;
   };
 
   if (isLoading) {
@@ -311,12 +348,20 @@ export default function HomePage() {
               </div>
             </div>
             
-            <button
-              onClick={() => { localStorage.removeItem("omnix-user"); router.push("/"); }}
-              style={{ padding: "8px 16px", background: "transparent", color: "rgba(255,255,255,0.5)", border: "1px solid rgba(255,255,255,0.2)", borderRadius: "6px", fontSize: "13px", cursor: "pointer" }}
-            >
-              Logout
-            </button>
+            <div style={{ display: "flex", gap: "10px" }}>
+              <button
+                onClick={() => router.push("/leaderboard")}
+                style={{ padding: "8px 16px", background: "rgba(138,43,226,0.1)", color: "#8A2BE2", border: "1px solid rgba(138,43,226,0.3)", borderRadius: "6px", fontSize: "13px", cursor: "pointer" }}
+              >
+                🏆 Leaderboard
+              </button>
+              <button
+                onClick={() => { localStorage.removeItem("omnix-user"); router.push("/"); }}
+                style={{ padding: "8px 16px", background: "transparent", color: "rgba(255,255,255,0.5)", border: "1px solid rgba(255,255,255,0.2)", borderRadius: "6px", fontSize: "13px", cursor: "pointer" }}
+              >
+                Logout
+              </button>
+            </div>
           </div>
         </div>
 
@@ -429,7 +474,15 @@ export default function HomePage() {
         {/* My Rooms */}
         {myRooms.length > 0 && (
           <div style={{ background: "#121212", padding: "25px", borderRadius: "16px", border: "1px solid rgba(138,43,226,0.2)" }}>
-            <h2 style={{ color: "#FFF", fontSize: "18px", marginBottom: "20px" }}>📊 My Rooms ({myRooms.length})</h2>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "20px" }}>
+              <h2 style={{ color: "#FFF", fontSize: "18px", margin: 0 }}>📊 My Rooms ({myRooms.length})</h2>
+              <button
+                onClick={refreshRooms}
+                style={{ padding: "8px 16px", background: "rgba(0,174,239,0.1)", color: "#00AEEF", border: "1px solid rgba(0,174,239,0.3)", borderRadius: "6px", fontSize: "13px", cursor: "pointer" }}
+              >
+                🔄 Refresh
+              </button>
+            </div>
             
             <div style={{ display: "flex", flexDirection: "column", gap: "15px" }}>
               {myRooms.map(room => (
@@ -442,12 +495,14 @@ export default function HomePage() {
                   <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
                     {room.predictions.map(pred => {
                       const isExpired = timeLeft[pred.id] === "Expired" || new Date(pred.deadline) < new Date();
+                      const responseStats = getResponseStats(pred.responses || []);
+                      const totalResponses = pred.responses?.length || 0;
                       
                       return (
                         <div key={pred.id} style={{ background: "rgba(0,0,0,0.3)", padding: "15px", borderRadius: "8px", border: pred.resolved ? "1px solid rgba(0,230,163,0.3)" : "1px solid rgba(255,255,255,0.1)" }}>
                           <p style={{ color: "#FFF", fontSize: "14px", margin: "0 0 10px 0" }}>{pred.question}</p>
                           
-                          <div style={{ display: "flex", alignItems: "center", gap: "10px", flexWrap: "wrap" }}>
+                          <div style={{ display: "flex", alignItems: "center", gap: "10px", flexWrap: "wrap", marginBottom: "10px" }}>
                             {pred.resolved ? (
                               <span style={{ background: "rgba(0,230,163,0.1)", color: "#00E6A3", padding: "4px 10px", borderRadius: "20px", fontSize: "12px" }}>
                                 ✅ Answer: {pred.correctAnswer}
@@ -457,15 +512,50 @@ export default function HomePage() {
                                 <span style={{ background: isExpired ? "rgba(255,45,146,0.1)" : "rgba(255,196,0,0.1)", color: isExpired ? "#FF2D92" : "#FFC400", padding: "4px 10px", borderRadius: "20px", fontSize: "12px" }}>
                                   {isExpired ? "⏰ Expired" : `⏳ ${timeLeft[pred.id] || "24h"}`}
                                 </span>
-                                <span style={{ color: "rgba(255,255,255,0.4)", fontSize: "12px" }}>
-                                  👥 {pred.responses?.length || 0} responses
-                                </span>
                               </>
                             )}
+                            <span style={{ color: "rgba(255,255,255,0.4)", fontSize: "12px" }}>
+                              👥 {totalResponses} response{totalResponses !== 1 ? "s" : ""}
+                            </span>
                           </div>
+
+                          {/* Response Stats */}
+                          {totalResponses > 0 && (
+                            <div style={{ marginBottom: "10px" }}>
+                              <div 
+                                onClick={() => setExpandedRoom(expandedRoom === pred.id ? null : pred.id)}
+                                style={{ cursor: "pointer", color: "#00AEEF", fontSize: "12px", marginBottom: "8px" }}
+                              >
+                                {expandedRoom === pred.id ? "▼ Hide responses" : "▶ Show responses"}
+                              </div>
+                              
+                              {/* Stats breakdown */}
+                              <div style={{ display: "flex", gap: "8px", flexWrap: "wrap", marginBottom: "8px" }}>
+                                {Object.entries(responseStats).map(([answer, count]) => (
+                                  <span key={answer} style={{ background: "rgba(138,43,226,0.1)", color: "#8A2BE2", padding: "4px 10px", borderRadius: "12px", fontSize: "11px" }}>
+                                    {answer}: {Math.round((count / totalResponses) * 100)}% ({count})
+                                  </span>
+                                ))}
+                              </div>
+                              
+                              {/* Individual responses */}
+                              {expandedRoom === pred.id && (
+                                <div style={{ background: "rgba(0,0,0,0.2)", padding: "10px", borderRadius: "6px", marginTop: "8px" }}>
+                                  {pred.responses?.map((r, i) => (
+                                    <div key={i} style={{ display: "flex", justifyContent: "space-between", padding: "5px 0", borderBottom: i < pred.responses.length - 1 ? "1px solid rgba(255,255,255,0.1)" : "none" }}>
+                                      <span style={{ color: "#FFF", fontSize: "12px" }}>{r.username}</span>
+                                      <span style={{ color: pred.resolved && r.answer.toLowerCase().trim() === pred.correctAnswer?.toLowerCase().trim() ? "#00E6A3" : "#8A2BE2", fontSize: "12px", fontWeight: "600" }}>
+                                        {r.answer} {pred.resolved && r.answer.toLowerCase().trim() === pred.correctAnswer?.toLowerCase().trim() && "✅"}
+                                      </span>
+                                    </div>
+                                  ))}
+                                </div>
+                              )}
+                            </div>
+                          )}
                           
                           {!pred.resolved && (
-                            <div style={{ marginTop: "12px", display: "flex", gap: "8px", flexWrap: "wrap" }}>
+                            <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
                               <button
                                 onClick={() => sendReminder(room, pred)}
                                 style={{ padding: "8px 12px", background: "rgba(37,211,102,0.1)", color: "#25D366", border: "1px solid rgba(37,211,102,0.3)", borderRadius: "6px", fontSize: "12px", cursor: "pointer" }}
