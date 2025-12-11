@@ -8,7 +8,7 @@ export default function HomePage() {
   // Load stored user
   const user =
     typeof window !== "undefined"
-      ? JSON.parse(localStorage.getItem("omnix-user")) || {}
+     JSON.parse(localStorage.getItem("omnix-user") || "{}")
       : {};
 
   // Create room handler (temporary)
