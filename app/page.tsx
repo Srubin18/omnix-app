@@ -1,7 +1,11 @@
 "use client";
 
+import React from "react";
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+
+
+
 
 export default function LoginPage() {
   const router = useRouter();
@@ -12,7 +16,7 @@ export default function LoginPage() {
     username: ""
   });
 
-  function handleChange(e) {
+function handleChange(e: React.ChangeEvent<HTMLInputElement>) {
     setForm({ ...form, [e.target.name]: e.target.value });
   }
 
