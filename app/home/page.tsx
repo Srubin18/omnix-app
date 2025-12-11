@@ -1,7 +1,16 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { useRouter } from "next/navigation";
+
+interface Room {
+  id: string;
+  name: string;
+  creator: string;
+  predictions: Prediction[];
+  createdAt: string;
+  comments?: Comment[];
+  category?: string;
+}
 
 interface Prediction {
   id: string;
@@ -23,140 +32,55 @@ interface PredictionResponse {
   timestamp: string;
 }
 
-interface Room {
-  id: string;
-  name: string;
-  creator: string;
-  predictions: Prediction[];
-  createdAt: string;
-  shared: boolean;
-  category?: string;
+interface Comment {
+  username: string;
+  message: string;
+  timestamp: string;
 }
 
-// Prediction Templates
-const TEMPLATES = {
-  fun: [
-    { q: "Who will be the last to arrive?", type: "text" },
-    { q: "Who will drink the most?", type: "text" },
-    { q: "Who will fall asleep first?", type: "text" },
-    { q: "Who will tell the funniest joke?", type: "text" },
-    { q: "Will there be drama tonight?", type: "yesno" },
-    { q: "Who's most likely to lose their phone?", type: "text" },
-    { q: "What time will the party end?", type: "text" },
-    { q: "Who will dance the most?", type: "text" },
-  ],
-  sports: [
-    { q: "Who will win the match?", type: "text" },
-    { q: "What will be the final score?", type: "text" },
-    { q: "Who will score first?", type: "text" },
-    { q: "Will there be a red card?", type: "yesno" },
-    { q: "Total goals over/under 2.5?", type: "multiple", options: ["Over 2.5", "Under 2.5"] },
-    { q: "Man of the match?", type: "text" },
-    { q: "Will there be a penalty?", type: "yesno" },
-    { q: "Halftime score?", type: "text" },
-  ],
-  work: [
-    { q: "Will we hit our deadline?", type: "yesno" },
-    { q: "Who will send the first Monday email?", type: "text" },
-    { q: "How many meetings this week?", type: "text" },
-    { q: "Will the project be approved?", type: "yesno" },
-    { q: "Who will stay latest on Friday?", type: "text" },
-    { q: "Will we get new clients this month?", type: "yesno" },
-    { q: "Team lunch spot this week?", type: "text" },
-    { q: "Who will be employee of the month?", type: "text" },
-  ],
-  entertainment: [
-    { q: "Who will win the award?", type: "text" },
-    { q: "Will there be a plot twist?", type: "yesno" },
-    { q: "Who will be eliminated next?", type: "text" },
-    { q: "Rotten Tomatoes score prediction?", type: "text" },
-    { q: "Will the album go #1?", type: "yesno" },
-    { q: "Who will win the reality show?", type: "text" },
-    { q: "Box office opening weekend ($M)?", type: "text" },
-    { q: "Will there be a sequel announcement?", type: "yesno" },
-  ]
-};
+interface SportsEvent {
+  id: string;
+  league: string;
+  home: string;
+  away: string;
+  date: string;
+  time: string;
+  icon: string;
+}
 
-// Sports categories
-const SPORT_CATEGORIES = [
-  { id: "football", name: "Football", icon: "⚽" },
+const sportsList = [
+  { id: "football", name: "Soccer", icon: "⚽" },
+  { id: "rugby", name: "Rugby", icon: "🏉" },
+  { id: "cricket", name: "Cricket", icon: "🏏" },
   { id: "basketball", name: "Basketball", icon: "🏀" },
-  { id: "american_football", name: "NFL", icon: "🏈" },
   { id: "mma", name: "MMA/UFC", icon: "🥊" },
   { id: "tennis", name: "Tennis", icon: "🎾" },
-  { id: "cricket", name: "Cricket", icon: "🏏" },
-];
-
-const CATEGORIES = [
-  { id: "sports", name: "Sports", icon: "🏆", color: "#00AEEF" },
-  { id: "fun", name: "Fun & Social", icon: "🎉", color: "#FF2D92" },
-  { id: "work", name: "Work", icon: "💼", color: "#FFC400" },
-  { id: "entertainment", name: "Entertainment", icon: "🎬", color: "#8A2BE2" },
 ];
 
 export default function HomePage() {
-  const router = useRouter();
   const [username, setUsername] = useState("");
-  const [isLoading, setIsLoading] = useState(true);
-  const [stats, setStats] = useState<any>(null);
-  
+  const [showCreateRoom, setShowCreateRoom] = useState(false);
   const [roomName, setRoomName] = useState("");
-  const [currentRoom, setCurrentRoom] = useState<Room | null>(null);
-  const [myRooms, setMyRooms] = useState<Room[]>([]);
-  const [selectedCategory, setSelectedCategory] = useState<string>("fun");
-  
+  const [roomCategory, setRoomCategory] = useState("sports");
+  const [predictions, setPredictions] = useState<{question: string; deadline: string; pointValue: number; answerType: "text" | "yesno" | "multiple"; options: string[]}[]>([]);
   const [newQuestion, setNewQuestion] = useState("");
-  const [pointValue, setPointValue] = useState(50);
-  const [answerType, setAnswerType] = useState<"text" | "yesno" | "multiple">("text");
-  const [multipleOptions, setMultipleOptions] = useState<string[]>(["", ""]);
-  const [deadlineHours, setDeadlineHours] = useState(24);
-  
-  const [showTemplates, setShowTemplates] = useState(false);
-  const [showLiveSports, setShowLiveSports] = useState(false);
-  const [sportsEvents, setSportsEvents] = useState<any[]>([]);
+  const [newDeadline, setNewDeadline] = useState("");
+  const [newPointValue, setNewPointValue] = useState(50);
+  const [newAnswerType, setNewAnswerType] = useState<"text" | "yesno" | "multiple">("text");
+  const [newOptions, setNewOptions] = useState<string[]>(["", ""]);
+  const [creating, setCreating] = useState(false);
+  const [myRooms, setMyRooms] = useState<Room[]>([]);
+  const [loadingRooms, setLoadingRooms] = useState(true);
+  const [userStats, setUserStats] = useState({ points: 0, level: 1, roomsCreated: 0 });
+
+  // Sports modal state
+  const [showSportsModal, setShowSportsModal] = useState(false);
   const [selectedSport, setSelectedSport] = useState("football");
-  const [loadingSports, setLoadingSports] = useState(false);
-  
-  const [aiLoading, setAiLoading] = useState(false);
-  const [saving, setSaving] = useState(false);
-  const [timeLeft, setTimeLeft] = useState<{[key: string]: string}>({});
-  const [expandedRoom, setExpandedRoom] = useState<string | null>(null);
-
-  const fetchRoomsFromDatabase = async (roomIds: string[]) => {
-    const rooms: Room[] = [];
-    for (const id of roomIds) {
-      try {
-        const response = await fetch(`/api/rooms?id=${id}`);
-        if (response.ok) {
-          const data = await response.json();
-          if (data.room) {
-            const room = typeof data.room === "string" ? JSON.parse(data.room) : data.room;
-            rooms.push(room);
-          }
-        }
-      } catch (error) {
-        console.error("Error fetching room:", id);
-      }
-    }
-    setMyRooms(rooms);
-  };
-
-  const fetchSportsEvents = async (sport: string) => {
-    setLoadingSports(true);
-    try {
-      const res = await fetch(`/api/sports?sport=${sport}`);
-      const data = await res.json();
-      setSportsEvents(data.events || []);
-    } catch (e) {
-      console.error(e);
-      setSportsEvents([]);
-    }
-    setLoadingSports(false);
-  };
+  const [sportsEvents, setSportsEvents] = useState<SportsEvent[]>([]);
+  const [sportsLoading, setSportsLoading] = useState(false);
 
   useEffect(() => {
     const userStr = localStorage.getItem("omnix-user");
-    
     if (!userStr) {
       window.location.href = "/";
       return;
@@ -164,1020 +88,481 @@ export default function HomePage() {
 
     try {
       const user = JSON.parse(userStr);
-      setUsername(user.username || user.name || "User");
-      setStats(user.stats || { points: 0, level: 1, roomsCreated: 0 });
-      
-      const roomIdsStr = localStorage.getItem(`omnix-room-ids-${user.username}`);
-      if (roomIdsStr) {
-        const roomIds = JSON.parse(roomIdsStr);
-        fetchRoomsFromDatabase(roomIds);
-      }
-      
-      setIsLoading(false);
-    } catch (error) {
-      console.error("Error loading user:", error);
-      setIsLoading(false);
+      setUsername(user.username || "");
+      setUserStats(user.stats || { points: 0, level: 1, roomsCreated: 0 });
+    } catch (e) {
+      window.location.href = "/";
+      return;
     }
+
+    loadMyRooms();
   }, []);
 
-  const refreshRooms = async () => {
-    const roomIdsStr = localStorage.getItem(`omnix-room-ids-${username}`);
-    if (roomIdsStr) {
-      const roomIds = JSON.parse(roomIdsStr);
-      await fetchRoomsFromDatabase(roomIds);
+  const loadMyRooms = async () => {
+    setLoadingRooms(true);
+    try {
+      const userStr = localStorage.getItem("omnix-user");
+      if (!userStr) return;
+      const user = JSON.parse(userStr);
+
+      const response = await fetch(`/api/rooms?creator=${user.username}`);
+      const data = await response.json();
+
+      if (data.rooms) {
+        const parsed = data.rooms.map((r: any) => typeof r === "string" ? JSON.parse(r) : r);
+        setMyRooms(parsed);
+      }
+    } catch (error) {
+      console.error("Error loading rooms:", error);
+    } finally {
+      setLoadingRooms(false);
     }
   };
 
-  useEffect(() => {
-    const interval = setInterval(() => {
-      const allPredictions = [...(currentRoom?.predictions || []), ...myRooms.flatMap(r => r.predictions)];
-      const newTimeLeft: {[key: string]: string} = {};
-      
-      allPredictions.forEach(pred => {
-        const deadline = new Date(pred.deadline).getTime();
-        const now = Date.now();
-        const diff = deadline - now;
-        
-        if (diff <= 0) {
-          newTimeLeft[pred.id] = "Expired";
-        } else {
-          const hours = Math.floor(diff / (1000 * 60 * 60));
-          const minutes = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
-          const seconds = Math.floor((diff % (1000 * 60)) / 1000);
-          newTimeLeft[pred.id] = `${hours}h ${minutes}m ${seconds}s`;
-        }
-      });
-      setTimeLeft(newTimeLeft);
-    }, 1000);
+  const fetchSportsEvents = async (sport: string) => {
+    setSportsLoading(true);
+    try {
+      const response = await fetch(`/api/sports?sport=${sport}`);
+      const data = await response.json();
 
-    return () => clearInterval(interval);
-  }, [currentRoom, myRooms]);
+      if (data.events && data.events.length > 0) {
+        setSportsEvents(data.events);
+      } else {
+        const fallbackEvents = [
+          { id: "1", league: "Premier League", home: "Arsenal", away: "Chelsea", date: new Date(Date.now() + 86400000).toISOString().split('T')[0], time: "15:00", icon: "⚽" },
+          { id: "2", league: "Premier League", home: "Liverpool", away: "Man United", date: new Date(Date.now() + 172800000).toISOString().split('T')[0], time: "17:30", icon: "⚽" },
+        ];
+        setSportsEvents(fallbackEvents);
+      }
+    } catch (error) {
+      console.error("Sports fetch error:", error);
+      const fallbackEvents = [
+        { id: "1", league: "Premier League", home: "Arsenal", away: "Chelsea", date: new Date(Date.now() + 86400000).toISOString().split('T')[0], time: "15:00", icon: "⚽" },
+      ];
+      setSportsEvents(fallbackEvents);
+    } finally {
+      setSportsLoading(false);
+    }
+  };
 
-  const createRoom = () => {
+  const openSportsModal = () => {
+    setShowSportsModal(true);
+    fetchSportsEvents(selectedSport);
+  };
+
+  const handleSportChange = (sport: string) => {
+    setSelectedSport(sport);
+    fetchSportsEvents(sport);
+  };
+
+  const createRoomFromEvent = (event: SportsEvent) => {
+    setShowSportsModal(false);
+    setShowCreateRoom(true);
+    setRoomName(`${event.home} vs ${event.away}`);
+    setRoomCategory("sports");
+
+    const eventDate = new Date(event.date + "T" + event.time);
+    const deadlineDate = new Date(eventDate.getTime() - 30 * 60000);
+    const deadlineStr = deadlineDate.toISOString().slice(0, 16);
+
+    setPredictions([
+      { question: `Who will win: ${event.home} or ${event.away}?`, deadline: deadlineStr, pointValue: 50, answerType: "text", options: [] },
+      { question: "What will be the final score?", deadline: deadlineStr, pointValue: 100, answerType: "text", options: [] },
+      { question: "Will there be overtime/extra time?", deadline: deadlineStr, pointValue: 30, answerType: "yesno", options: [] },
+    ]);
+  };
+
+  const addPrediction = () => {
+    if (!newQuestion.trim() || !newDeadline) {
+      alert("Please enter a question and deadline");
+      return;
+    }
+
+    setPredictions([...predictions, {
+      question: newQuestion,
+      deadline: newDeadline,
+      pointValue: newPointValue,
+      answerType: newAnswerType,
+      options: newAnswerType === "multiple" ? newOptions.filter(o => o.trim()) : []
+    }]);
+
+    setNewQuestion("");
+    setNewDeadline("");
+    setNewPointValue(50);
+    setNewAnswerType("text");
+    setNewOptions(["", ""]);
+  };
+
+  const removePrediction = (index: number) => {
+    setPredictions(predictions.filter((_, i) => i !== index));
+  };
+
+  const createRoom = async () => {
     if (!roomName.trim()) {
       alert("Please enter a room name");
       return;
     }
 
-    const roomId = Math.random().toString(36).substring(2, 10);
-    const newRoom: Room = {
-      id: roomId,
-      name: roomName,
-      creator: username,
-      predictions: [],
-      createdAt: new Date().toISOString(),
-      shared: false,
-      category: selectedCategory
-    };
-
-    setCurrentRoom(newRoom);
-    setRoomName("");
-
-    const userStr = localStorage.getItem("omnix-user");
-    if (userStr) {
-      const user = JSON.parse(userStr);
-      user.stats = user.stats || {};
-      user.stats.roomsCreated = (user.stats.roomsCreated || 0) + 1;
-      user.stats.points = (user.stats.points || 0) + 20;
-      localStorage.setItem("omnix-user", JSON.stringify(user));
-      setStats(user.stats);
-    }
-  };
-
-  const addPrediction = () => {
-    if (!newQuestion.trim()) {
-      alert("Please enter a prediction question");
+    if (predictions.length === 0) {
+      alert("Please add at least one prediction");
       return;
     }
 
-    if (answerType === "multiple") {
-      const validOptions = multipleOptions.filter(o => o.trim());
-      if (validOptions.length < 2) {
-        alert("Please add at least 2 options for multiple choice");
-        return;
-      }
-    }
+    setCreating(true);
 
-    if (!currentRoom) return;
-
-    const prediction: Prediction = {
-      id: Math.random().toString(36).substring(2, 10),
-      question: newQuestion,
-      createdAt: new Date().toISOString(),
-      deadline: new Date(Date.now() + deadlineHours * 60 * 60 * 1000).toISOString(),
-      responses: [],
-      resolved: false,
-      pointValue: pointValue,
-      winners: [],
-      answerType: answerType,
-      options: answerType === "multiple" ? multipleOptions.filter(o => o.trim()) : undefined
-    };
-
-    const updatedRoom = {
-      ...currentRoom,
-      predictions: [...currentRoom.predictions, prediction]
-    };
-
-    setCurrentRoom(updatedRoom);
-    setNewQuestion("");
-    setAnswerType("text");
-    setMultipleOptions(["", ""]);
-  };
-
-  const addFromTemplate = (template: { q: string; type: string; options?: string[] }) => {
-    setNewQuestion(template.q);
-    setAnswerType(template.type as "text" | "yesno" | "multiple");
-    if (template.options) {
-      setMultipleOptions(template.options);
-    }
-    setShowTemplates(false);
-  };
-
-  const addFromSportsEvent = (event: any) => {
-    const roomId = Math.random().toString(36).substring(2, 10);
-    const newRoom: Room = {
-      id: roomId,
-      name: `${event.home} vs ${event.away}`,
-      creator: username,
-      predictions: [
-        {
-          id: Math.random().toString(36).substring(2, 10),
-          question: `Who will win: ${event.home} vs ${event.away}?`,
+    try {
+      const roomId = Math.random().toString(36).substring(2, 10);
+      const room: Room = {
+        id: roomId,
+        name: roomName,
+        creator: username,
+        category: roomCategory,
+        predictions: predictions.map((p, i) => ({
+          id: `pred-${i}-${Date.now()}`,
+          question: p.question,
           createdAt: new Date().toISOString(),
-          deadline: new Date(`${event.date}T${event.time}`).toISOString(),
+          deadline: new Date(p.deadline).toISOString(),
           responses: [],
           resolved: false,
-          pointValue: 100,
-          winners: [],
-          answerType: "multiple",
-          options: [event.home, event.away, "Draw"]
+          pointValue: p.pointValue,
+          answerType: p.answerType,
+          options: p.options
+        })),
+        createdAt: new Date().toISOString(),
+        comments: []
+      };
+
+      const response = await fetch("/api/rooms", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ room })
+      });
+
+      if (response.ok) {
+        const userStr = localStorage.getItem("omnix-user");
+        if (userStr) {
+          const user = JSON.parse(userStr);
+          user.stats = user.stats || {};
+          user.stats.roomsCreated = (user.stats.roomsCreated || 0) + 1;
+          user.stats.points = (user.stats.points || 0) + 20;
+          localStorage.setItem("omnix-user", JSON.stringify(user));
         }
-      ],
-      createdAt: new Date().toISOString(),
-      shared: false,
-      category: "sports"
-    };
-    setCurrentRoom(newRoom);
-    setShowLiveSports(false);
-  };
 
-  const removePrediction = (predId: string) => {
-    if (!currentRoom) return;
-    
-    const updatedRoom = {
-      ...currentRoom,
-      predictions: currentRoom.predictions.filter(p => p.id !== predId)
-    };
-    setCurrentRoom(updatedRoom);
-  };
+        await fetch("/api/leaderboard", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ username, points: 20, correct: 0, total: 0 })
+        });
 
-  const shareOnWhatsApp = async () => {
-    if (!currentRoom) return;
-    
-    if (currentRoom.predictions.length === 0) {
-      alert("Please add at least one prediction before sharing!");
-      return;
-    }
-
-    setSaving(true);
-
-    try {
-      const response = await fetch("/api/rooms", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ room: currentRoom })
-      });
-
-      if (!response.ok) {
-        throw new Error("Failed to save room");
+        window.location.href = `/room/${roomId}`;
       }
-
-      const roomIdsStr = localStorage.getItem(`omnix-room-ids-${username}`);
-      const roomIds = roomIdsStr ? JSON.parse(roomIdsStr) : [];
-      if (!roomIds.includes(currentRoom.id)) {
-        roomIds.push(currentRoom.id);
-        localStorage.setItem(`omnix-room-ids-${username}`, JSON.stringify(roomIds));
-      }
-
-      setMyRooms([...myRooms, { ...currentRoom, shared: true }]);
-
-      const categoryIcon = CATEGORIES.find(c => c.id === currentRoom.category)?.icon || "🔮";
-      const predictionsList = currentRoom.predictions.map((p, i) => `${i + 1}. ${p.question} (🏆 ${p.pointValue} pts)`).join("\n");
-      const userStr = localStorage.getItem("omnix-user");
-      const user = userStr ? JSON.parse(userStr) : { stats: { level: 1 } };
-      
-      const message = `${categoryIcon} *${currentRoom.name}*\n\nby ${username} (Level ${user.stats?.level || 1})\n\n${predictionsList}\n\n🎁 +10 bonus points for joining!\n\n👉 https://omnix-app.vercel.app/room/${currentRoom.id}`;
-      
-      window.open(`https://wa.me/?text=${encodeURIComponent(message)}`, "_blank");
-      
-      setCurrentRoom(null);
     } catch (error) {
-      alert("Failed to save room. Please try again.");
+      alert("Error creating room");
     } finally {
-      setSaving(false);
+      setCreating(false);
     }
   };
 
-  const shareOnTelegram = async () => {
-    if (!currentRoom) return;
-    if (currentRoom.predictions.length === 0) {
-      alert("Please add at least one prediction before sharing!");
-      return;
-    }
-
-    setSaving(true);
-
-    try {
-      const response = await fetch("/api/rooms", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ room: currentRoom })
-      });
-
-      if (!response.ok) throw new Error("Failed to save room");
-
-      const roomIdsStr = localStorage.getItem(`omnix-room-ids-${username}`);
-      const roomIds = roomIdsStr ? JSON.parse(roomIdsStr) : [];
-      if (!roomIds.includes(currentRoom.id)) {
-        roomIds.push(currentRoom.id);
-        localStorage.setItem(`omnix-room-ids-${username}`, JSON.stringify(roomIds));
-      }
-
-      setMyRooms([...myRooms, { ...currentRoom, shared: true }]);
-
-      const categoryIcon = CATEGORIES.find(c => c.id === currentRoom.category)?.icon || "🔮";
-      const predictionsList = currentRoom.predictions.map((p, i) => `${i + 1}. ${p.question} (🏆 ${p.pointValue} pts)`).join("\n");
-      
-      const message = `${categoryIcon} ${currentRoom.name}\n\n${predictionsList}\n\n🎁 +10 bonus points for joining!\n\n👉 https://omnix-app.vercel.app/room/${currentRoom.id}`;
-      
-      window.open(`https://t.me/share/url?url=${encodeURIComponent(`https://omnix-app.vercel.app/room/${currentRoom.id}`)}&text=${encodeURIComponent(message)}`, "_blank");
-      
-      setCurrentRoom(null);
-    } catch (error) {
-      alert("Failed to save room. Please try again.");
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const copyLink = async () => {
-    if (!currentRoom) return;
-    if (currentRoom.predictions.length === 0) {
-      alert("Please add at least one prediction before sharing!");
-      return;
-    }
-
-    setSaving(true);
-
-    try {
-      const response = await fetch("/api/rooms", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ room: currentRoom })
-      });
-
-      if (!response.ok) throw new Error("Failed to save room");
-
-      const roomIdsStr = localStorage.getItem(`omnix-room-ids-${username}`);
-      const roomIds = roomIdsStr ? JSON.parse(roomIdsStr) : [];
-      if (!roomIds.includes(currentRoom.id)) {
-        roomIds.push(currentRoom.id);
-        localStorage.setItem(`omnix-room-ids-${username}`, JSON.stringify(roomIds));
-      }
-
-      setMyRooms([...myRooms, { ...currentRoom, shared: true }]);
-
-      await navigator.clipboard.writeText(`https://omnix-app.vercel.app/room/${currentRoom.id}`);
-      alert("Link copied to clipboard! 📋");
-      
-      setCurrentRoom(null);
-    } catch (error) {
-      alert("Failed to save room. Please try again.");
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const sendReminder = (room: Room, prediction: Prediction) => {
-    const message = `⏰ REMINDER!\n\n🔮 "${prediction.question}"\n🏆 ${prediction.pointValue} points to win!\n\n⏳ Time left: ${timeLeft[prediction.id] || "Check now!"}\n\n👉 Make your prediction:\nhttps://omnix-app.vercel.app/room/${room.id}`;
+  const shareRoom = (roomId: string, roomName: string) => {
+    const message = `🔮 Join my prediction room on Omnix!\n\n📝 *${roomName}*\n\n🎁 Get +10 bonus points for joining!\n\n👉 Click to play:\nhttps://omnix-app.vercel.app/room/${roomId}`;
     window.open(`https://wa.me/?text=${encodeURIComponent(message)}`, "_blank");
   };
 
-  const resolveWithAI = async (room: Room, prediction: Prediction) => {
-    const confirmed = confirm(`🤖 Use AI to find the answer for:\n\n"${prediction.question}"\n\nContinue?`);
-    if (!confirmed) return;
+  const logout = () => {
+    localStorage.removeItem("omnix-user");
+    window.location.href = "/";
+  };
 
-    setAiLoading(true);
-
-    try {
-      const response = await fetch("/api/resolve", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ question: prediction.question })
-      });
-
-      const data = await response.json();
-      setAiLoading(false);
-
-      if (data.answer) {
-        const useAnswer = confirm(`🤖 AI Found:\n\n"${data.answer}"\n\nSource: ${data.source || "Web search"}\n\nUse this as the correct answer?`);
-        if (useAnswer) {
-          resolvePrediction(room.id, prediction.id, data.answer);
-        }
-      } else {
-        alert("❌ Couldn't find a definitive answer. Please resolve manually.");
-      }
-    } catch (error) {
-      setAiLoading(false);
-      alert("❌ AI search failed. Please try again.");
+  const getCategoryIcon = (category?: string) => {
+    switch(category) {
+      case "sports": return "🏆";
+      case "fun": return "🎉";
+      case "work": return "💼";
+      case "entertainment": return "🎬";
+      default: return "🔮";
     }
   };
 
-  const resolvePrediction = async (roomId: string, predictionId: string, answer: string) => {
-    const updatedRooms = await Promise.all(myRooms.map(async (room) => {
-      if (room.id === roomId) {
-        const updatedPredictions = room.predictions.map(pred => {
-          if (pred.id === predictionId) {
-            const winners = pred.responses
-              ?.filter(r => r.answer.toLowerCase().trim() === answer.toLowerCase().trim())
-              .map(r => r.username) || [];
-            
-            return { ...pred, resolved: true, correctAnswer: answer, winners };
-          }
-          return pred;
-        });
-
-        const updatedRoom = { ...room, predictions: updatedPredictions };
-        
-        await fetch("/api/rooms", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ room: updatedRoom })
-        });
-
-        const resolvedPred = updatedPredictions.find(p => p.id === predictionId);
-        if (resolvedPred?.winners && resolvedPred.winners.length > 0) {
-          for (const winner of resolvedPred.winners) {
-            await fetch("/api/leaderboard", {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ 
-                username: winner, 
-                points: resolvedPred.pointValue,
-                correct: 1,
-                total: 1
-              })
-            });
-          }
-        }
-
-        for (const response of resolvedPred?.responses || []) {
-          if (!resolvedPred?.winners?.includes(response.username)) {
-            await fetch("/api/leaderboard", {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ 
-                username: response.username, 
-                points: 0,
-                correct: 0,
-                total: 1
-              })
-            });
-          }
-        }
-        
-        return updatedRoom;
-      }
-      return room;
-    }));
-    
-    setMyRooms(updatedRooms);
-
-    const room = updatedRooms.find(r => r.id === roomId);
-    const pred = room?.predictions.find(p => p.id === predictionId);
-    if (pred && pred.winners && pred.winners.length > 0) {
-      const shareResults = confirm(`🎉 Winners: ${pred.winners.join(", ")}\n\nShare results on WhatsApp?`);
-      if (shareResults) {
-        const message = `🎉 RESULTS ARE IN!\n\n🔮 "${pred.question}"\n\n✅ Correct Answer: ${answer}\n\n🏆 Winners (${pred.pointValue} pts each):\n${pred.winners.map(w => `• ${w}`).join("\n")}\n\n📊 See full leaderboard:\nhttps://omnix-app.vercel.app/leaderboard`;
-        window.open(`https://wa.me/?text=${encodeURIComponent(message)}`, "_blank");
-      }
-    }
+  const formatDate = (dateStr: string) => {
+    const date = new Date(dateStr);
+    return date.toLocaleDateString('en-ZA', { weekday: 'short', month: 'short', day: 'numeric' });
   };
-
-  const getResponseStats = (responses: PredictionResponse[]) => {
-    const stats: {[key: string]: number} = {};
-    responses.forEach(r => {
-      const answer = r.answer.toLowerCase().trim();
-      stats[answer] = (stats[answer] || 0) + 1;
-    });
-    return stats;
-  };
-
-  if (isLoading) {
-    return (
-      <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", background: "#000" }}>
-        <div style={{ textAlign: "center" }}>
-          <div style={{ fontSize: "48px", marginBottom: "15px" }}>🔮</div>
-          <p style={{ color: "#8A2BE2", fontSize: "18px" }}>Loading...</p>
-        </div>
-      </div>
-    );
-  }
 
   return (
     <div style={{ minHeight: "100vh", background: "#000", padding: "20px" }}>
-      <div style={{ maxWidth: "900px", margin: "0 auto", paddingTop: "20px" }}>
-
-        {(aiLoading || saving) && (
-          <div style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, background: "rgba(0,0,0,0.9)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000 }}>
-            <div style={{ textAlign: "center" }}>
-              <div style={{ fontSize: "48px", marginBottom: "15px" }}>{aiLoading ? "🤖" : "💾"}</div>
-              <p style={{ color: "#8A2BE2", fontSize: "16px" }}>{aiLoading ? "Searching for answer..." : "Saving room..."}</p>
-            </div>
-          </div>
-        )}
+      <div style={{ maxWidth: "600px", margin: "0 auto" }}>
 
         {/* Header */}
-        <div style={{ background: "#121212", padding: "25px", borderRadius: "16px", marginBottom: "20px", border: "1px solid rgba(138,43,226,0.2)", position: "relative", overflow: "hidden" }}>
-          <div style={{ position: "absolute", top: 0, left: 0, right: 0, height: "3px", background: "linear-gradient(90deg, #8A2BE2, #00AEEF, #8A2BE2)" }} />
-          
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: "15px" }}>
-            <div style={{ display: "flex", alignItems: "center", gap: "15px" }}>
-              <div style={{ width: "50px", height: "50px", borderRadius: "50%", background: "linear-gradient(135deg, #8A2BE2, #00AEEF)", display: "flex", alignItems: "center", justifyContent: "center" }}>
-                <span style={{ fontSize: "24px" }}>👑</span>
-              </div>
-              <div>
-                <h1 style={{ fontSize: "22px", fontWeight: "700", color: "#FFF", margin: 0 }}>{username}</h1>
-                <p style={{ color: "#8A2BE2", fontSize: "13px", margin: "3px 0 0 0" }}>Level {stats?.level || 1} • {stats?.points || 0} pts</p>
-              </div>
-            </div>
-            
-            <div style={{ display: "flex", gap: "10px" }}>
-              <button
-                onClick={() => window.location.href = "/leaderboard"}
-                style={{ padding: "8px 16px", background: "rgba(138,43,226,0.1)", color: "#8A2BE2", border: "1px solid rgba(138,43,226,0.3)", borderRadius: "6px", fontSize: "13px", cursor: "pointer" }}
-              >
-                🏆 Leaderboard
-              </button>
-              <button
-                onClick={() => { localStorage.removeItem("omnix-user"); window.location.href = "/"; }}
-                style={{ padding: "8px 16px", background: "transparent", color: "rgba(255,255,255,0.5)", border: "1px solid rgba(255,255,255,0.2)", borderRadius: "6px", fontSize: "13px", cursor: "pointer" }}
-              >
-                Logout
-              </button>
-            </div>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "25px" }}>
+          <div>
+            <h1 style={{ color: "#FFF", fontSize: "24px", margin: 0 }}>{username}</h1>
+            <p style={{ color: "rgba(255,255,255,0.5)", fontSize: "13px", margin: "4px 0 0 0" }}>⭐ {userStats.points || 0} pts • Level {userStats.level || 1}</p>
+          </div>
+          <div style={{ display: "flex", gap: "10px" }}>
+            <button onClick={() => window.location.href = "/leaderboard"} style={{ padding: "10px 15px", background: "rgba(255,196,0,0.1)", color: "#FFC400", border: "1px solid rgba(255,196,0,0.3)", borderRadius: "8px", fontSize: "14px", cursor: "pointer" }}>🏆</button>
+            <button onClick={logout} style={{ padding: "10px 15px", background: "rgba(255,255,255,0.05)", color: "rgba(255,255,255,0.5)", border: "1px solid rgba(255,255,255,0.1)", borderRadius: "8px", fontSize: "14px", cursor: "pointer" }}>Logout</button>
           </div>
         </div>
 
-        {/* Create Room */}
-        {!currentRoom ? (
-          <div style={{ background: "#121212", padding: "30px", borderRadius: "16px", marginBottom: "20px", border: "1px solid rgba(138,43,226,0.2)" }}>
-            <h2 style={{ color: "#FFF", fontSize: "20px", marginBottom: "8px" }}>🔮 Create Prediction Room</h2>
-            <p style={{ color: "rgba(255,255,255,0.5)", fontSize: "14px", marginBottom: "20px" }}>
-              Earn <span style={{ color: "#00E6A3" }}>+20 points</span> for creating a room
-            </p>
+        {/* Sports Events Button */}
+        <button
+          onClick={openSportsModal}
+          style={{ width: "100%", padding: "18px", background: "linear-gradient(135deg, rgba(0,174,239,0.2), rgba(138,43,226,0.2))", border: "1px solid rgba(0,174,239,0.3)", borderRadius: "12px", marginBottom: "15px", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: "10px" }}
+        >
+          <span style={{ fontSize: "24px" }}>⚽</span>
+          <span style={{ color: "#FFF", fontSize: "16px", fontWeight: "600" }}>Browse Live Sports Events</span>
+          <span style={{ color: "rgba(255,255,255,0.5)", fontSize: "12px" }}>🇿🇦</span>
+        </button>
 
-            {/* Category Selection */}
-            <div style={{ marginBottom: "20px" }}>
-              <p style={{ color: "rgba(255,255,255,0.6)", fontSize: "13px", marginBottom: "10px" }}>Select Category:</p>
-              <div style={{ display: "flex", gap: "10px", flexWrap: "wrap" }}>
-                {CATEGORIES.map(cat => (
-                  <button
-                    key={cat.id}
-                    onClick={() => setSelectedCategory(cat.id)}
-                    style={{ 
-                      padding: "10px 16px", 
-                      background: selectedCategory === cat.id ? `${cat.color}20` : "rgba(255,255,255,0.05)", 
-                      color: selectedCategory === cat.id ? cat.color : "rgba(255,255,255,0.6)", 
-                      border: selectedCategory === cat.id ? `2px solid ${cat.color}` : "1px solid rgba(255,255,255,0.1)", 
-                      borderRadius: "8px", 
-                      fontSize: "14px", 
-                      cursor: "pointer",
-                      display: "flex",
-                      alignItems: "center",
-                      gap: "6px"
-                    }}
-                  >
-                    {cat.icon} {cat.name}
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            {/* Live Sports Button */}
-            <button
-              onClick={() => {
-                setShowLiveSports(true);
-                fetchSportsEvents(selectedSport);
-              }}
-              style={{ width: "100%", padding: "14px", background: "linear-gradient(135deg, rgba(0,174,239,0.1), rgba(0,230,163,0.1))", color: "#00AEEF", border: "1px solid rgba(0,174,239,0.3)", borderRadius: "8px", fontSize: "14px", fontWeight: "600", cursor: "pointer", marginBottom: "15px", display: "flex", alignItems: "center", justifyContent: "center", gap: "8px" }}
-            >
-              ⚽ Browse Live Sports Events
-            </button>
-            
-            <div style={{ display: "flex", gap: "10px" }}>
-              <input
-                type="text"
-                value={roomName}
-                onChange={(e) => setRoomName(e.target.value)}
-                placeholder="Room name (e.g., 'Champions League Final')"
-                style={{ flex: 1, padding: "14px", borderRadius: "8px", border: "1px solid rgba(255,255,255,0.1)", background: "rgba(255,255,255,0.05)", color: "#FFF", fontSize: "15px" }}
-              />
-              <button
-                onClick={createRoom}
-                style={{ padding: "14px 24px", background: "linear-gradient(135deg, #8A2BE2, #00AEEF)", color: "#FFF", border: "none", borderRadius: "8px", fontSize: "15px", fontWeight: "600", cursor: "pointer", whiteSpace: "nowrap" }}
-              >
-                Create Room
-              </button>
-            </div>
-          </div>
-        ) : (
-          <div style={{ background: "#121212", padding: "30px", borderRadius: "16px", marginBottom: "20px", border: "1px solid rgba(0,230,163,0.3)" }}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "20px" }}>
-              <div>
-                <div style={{ display: "flex", alignItems: "center", gap: "10px", marginBottom: "5px" }}>
-                  <span style={{ fontSize: "20px" }}>{CATEGORIES.find(c => c.id === currentRoom.category)?.icon || "🔮"}</span>
-                  <h2 style={{ color: "#FFF", fontSize: "20px", margin: 0 }}>{currentRoom.name}</h2>
-                </div>
-                <p style={{ color: "rgba(255,255,255,0.5)", fontSize: "13px", margin: 0 }}>Add your prediction questions below</p>
-              </div>
-              <button
-                onClick={() => setCurrentRoom(null)}
-                style={{ padding: "8px 16px", background: "transparent", color: "rgba(255,255,255,0.5)", border: "1px solid rgba(255,255,255,0.2)", borderRadius: "6px", fontSize: "13px", cursor: "pointer" }}
-              >
-                Cancel
-              </button>
-            </div>
-
-            {/* Templates Button */}
-            <button
-              onClick={() => setShowTemplates(true)}
-              style={{ width: "100%", padding: "12px", background: "rgba(255,196,0,0.1)", color: "#FFC400", border: "1px solid rgba(255,196,0,0.3)", borderRadius: "8px", fontSize: "14px", cursor: "pointer", marginBottom: "15px", display: "flex", alignItems: "center", justifyContent: "center", gap: "8px" }}
-            >
-              💡 Use a Template Question
-            </button>
-
-            {/* Question Input */}
-            <div style={{ marginBottom: "20px" }}>
-              <input
-                type="text"
-                value={newQuestion}
-                onChange={(e) => setNewQuestion(e.target.value)}
-                placeholder="Enter prediction question..."
-                style={{ width: "100%", padding: "14px", borderRadius: "8px", border: "1px solid rgba(255,255,255,0.1)", background: "rgba(255,255,255,0.05)", color: "#FFF", fontSize: "15px", marginBottom: "15px", boxSizing: "border-box" }}
-              />
-              
-              {/* Answer Type Selection */}
-              <div style={{ marginBottom: "15px" }}>
-                <p style={{ color: "rgba(255,255,255,0.6)", fontSize: "13px", marginBottom: "8px" }}>Answer Type:</p>
-                <div style={{ display: "flex", gap: "10px", flexWrap: "wrap" }}>
-                  <button
-                    onClick={() => setAnswerType("text")}
-                    style={{ padding: "8px 14px", background: answerType === "text" ? "rgba(138,43,226,0.2)" : "rgba(255,255,255,0.05)", color: answerType === "text" ? "#8A2BE2" : "rgba(255,255,255,0.6)", border: answerType === "text" ? "2px solid #8A2BE2" : "1px solid rgba(255,255,255,0.1)", borderRadius: "6px", fontSize: "13px", cursor: "pointer" }}
-                  >
-                    ✏️ Text
-                  </button>
-                  <button
-                    onClick={() => setAnswerType("yesno")}
-                    style={{ padding: "8px 14px", background: answerType === "yesno" ? "rgba(0,230,163,0.2)" : "rgba(255,255,255,0.05)", color: answerType === "yesno" ? "#00E6A3" : "rgba(255,255,255,0.6)", border: answerType === "yesno" ? "2px solid #00E6A3" : "1px solid rgba(255,255,255,0.1)", borderRadius: "6px", fontSize: "13px", cursor: "pointer" }}
-                  >
-                    👍👎 Yes/No
-                  </button>
-                  <button
-                    onClick={() => setAnswerType("multiple")}
-                    style={{ padding: "8px 14px", background: answerType === "multiple" ? "rgba(0,174,239,0.2)" : "rgba(255,255,255,0.05)", color: answerType === "multiple" ? "#00AEEF" : "rgba(255,255,255,0.6)", border: answerType === "multiple" ? "2px solid #00AEEF" : "1px solid rgba(255,255,255,0.1)", borderRadius: "6px", fontSize: "13px", cursor: "pointer" }}
-                  >
-                    📋 Multiple Choice
-                  </button>
-                </div>
-              </div>
-
-              {/* Multiple Choice Options */}
-              {answerType === "multiple" && (
-                <div style={{ marginBottom: "15px", padding: "15px", background: "rgba(0,174,239,0.1)", borderRadius: "8px" }}>
-                  <p style={{ color: "#00AEEF", fontSize: "13px", marginBottom: "10px" }}>Options:</p>
-                  {multipleOptions.map((opt, i) => (
-                    <div key={i} style={{ display: "flex", gap: "10px", marginBottom: "8px" }}>
-                      <input
-                        type="text"
-                        value={opt}
-                        onChange={(e) => {
-                          const newOpts = [...multipleOptions];
-                          newOpts[i] = e.target.value;
-                          setMultipleOptions(newOpts);
-                        }}
-                        placeholder={`Option ${i + 1}`}
-                        style={{ flex: 1, padding: "10px", borderRadius: "6px", border: "1px solid rgba(255,255,255,0.1)", background: "rgba(255,255,255,0.05)", color: "#FFF", fontSize: "14px" }}
-                      />
-                      {multipleOptions.length > 2 && (
-                        <button
-                          onClick={() => setMultipleOptions(multipleOptions.filter((_, idx) => idx !== i))}
-                          style={{ padding: "10px", background: "rgba(255,45,146,0.1)", color: "#FF2D92", border: "none", borderRadius: "6px", cursor: "pointer" }}
-                        >
-                          ✕
-                        </button>
-                      )}
-                    </div>
-                  ))}
-                  <button
-                    onClick={() => setMultipleOptions([...multipleOptions, ""])}
-                    style={{ padding: "8px 12px", background: "transparent", color: "#00AEEF", border: "1px dashed rgba(0,174,239,0.5)", borderRadius: "6px", fontSize: "13px", cursor: "pointer", width: "100%" }}
-                  >
-                    + Add Option
-                  </button>
-                </div>
-              )}
-              
-              {/* Settings Row */}
-              <div style={{ display: "flex", gap: "15px", alignItems: "center", flexWrap: "wrap", background: "rgba(255,255,255,0.03)", padding: "15px", borderRadius: "8px" }}>
-                <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
-                  <span style={{ color: "#FFC400", fontSize: "14px" }}>🏆 Points:</span>
-                  <select
-                    value={pointValue}
-                    onChange={(e) => setPointValue(Number(e.target.value))}
-                    style={{ padding: "10px 15px", borderRadius: "8px", border: "2px solid rgba(255,196,0,0.5)", background: "rgba(255,196,0,0.15)", color: "#FFC400", fontSize: "15px", fontWeight: "700", cursor: "pointer" }}
-                  >
-                    <option value={10}>10 pts</option>
-                    <option value={25}>25 pts</option>
-                    <option value={50}>50 pts</option>
-                    <option value={100}>100 pts</option>
-                    <option value={200}>200 pts</option>
-                    <option value={500}>500 pts</option>
-                  </select>
-                </div>
-                
-                <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
-                  <span style={{ color: "#00AEEF", fontSize: "14px" }}>⏳ Deadline:</span>
-                  <select
-                    value={deadlineHours}
-                    onChange={(e) => setDeadlineHours(Number(e.target.value))}
-                    style={{ padding: "10px 15px", borderRadius: "8px", border: "2px solid rgba(0,174,239,0.5)", background: "rgba(0,174,239,0.15)", color: "#00AEEF", fontSize: "15px", fontWeight: "700", cursor: "pointer" }}
-                  >
-                    <option value={1}>1 hour</option>
-                    <option value={6}>6 hours</option>
-                    <option value={12}>12 hours</option>
-                    <option value={24}>24 hours</option>
-                    <option value={48}>48 hours</option>
-                    <option value={72}>3 days</option>
-                    <option value={168}>1 week</option>
-                  </select>
-                </div>
-                
-                <button
-                  onClick={addPrediction}
-                  style={{ marginLeft: "auto", padding: "12px 24px", background: "linear-gradient(135deg, #00E6A3, #00AEEF)", color: "#000", border: "none", borderRadius: "8px", fontSize: "15px", fontWeight: "700", cursor: "pointer" }}
-                >
-                  + Add Question
-                </button>
-              </div>
-            </div>
-
-            {/* Predictions List */}
-            {currentRoom.predictions.length > 0 && (
-              <div style={{ marginBottom: "20px" }}>
-                <p style={{ color: "rgba(255,255,255,0.6)", fontSize: "14px", marginBottom: "12px" }}>
-                  🔮 Questions ({currentRoom.predictions.length}):
-                </p>
-                <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
-                  {currentRoom.predictions.map((pred, i) => (
-                    <div key={pred.id} style={{ background: "rgba(255,255,255,0.05)", padding: "15px", borderRadius: "10px", display: "flex", justifyContent: "space-between", alignItems: "center", border: "1px solid rgba(138,43,226,0.3)" }}>
-                      <div style={{ flex: 1 }}>
-                        <div style={{ display: "flex", alignItems: "center", gap: "10px", marginBottom: "5px" }}>
-                          <span style={{ color: "#8A2BE2", fontWeight: "700" }}>{i + 1}.</span>
-                          <span style={{ color: "#FFF", fontSize: "15px" }}>{pred.question}</span>
-                        </div>
-                        <div style={{ display: "flex", gap: "10px", flexWrap: "wrap" }}>
-                          <span style={{ color: "#FFC400", fontSize: "12px", background: "rgba(255,196,0,0.1)", padding: "3px 10px", borderRadius: "12px" }}>🏆 {pred.pointValue} pts</span>
-                          <span style={{ color: "#00AEEF", fontSize: "12px", background: "rgba(0,174,239,0.1)", padding: "3px 10px", borderRadius: "12px" }}>⏳ {deadlineHours}h</span>
-                          <span style={{ color: "#8A2BE2", fontSize: "12px", background: "rgba(138,43,226,0.1)", padding: "3px 10px", borderRadius: "12px" }}>
-                            {pred.answerType === "yesno" ? "👍👎 Yes/No" : pred.answerType === "multiple" ? "📋 Multiple" : "✏️ Text"}
-                          </span>
-                        </div>
-                      </div>
-                      <button
-                        onClick={() => removePrediction(pred.id)}
-                        style={{ padding: "8px 12px", background: "rgba(255,45,146,0.1)", color: "#FF2D92", border: "none", borderRadius: "6px", fontSize: "14px", cursor: "pointer" }}
-                      >
-                        ✕
-                      </button>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            {/* Share Buttons */}
-            <div style={{ display: "flex", gap: "10px", flexWrap: "wrap" }}>
-              <button
-                onClick={shareOnWhatsApp}
-                disabled={currentRoom.predictions.length === 0 || saving}
-                style={{
-                  flex: 1,
-                  minWidth: "140px",
-                  padding: "16px",
-                  background: currentRoom.predictions.length > 0 ? "rgba(37,211,102,0.1)" : "rgba(255,255,255,0.05)",
-                  color: currentRoom.predictions.length > 0 ? "#25D366" : "rgba(255,255,255,0.3)",
-                  border: currentRoom.predictions.length > 0 ? "1px solid rgba(37,211,102,0.3)" : "1px solid rgba(255,255,255,0.1)",
-                  borderRadius: "10px",
-                  fontSize: "15px",
-                  fontWeight: "600",
-                  cursor: currentRoom.predictions.length > 0 ? "pointer" : "not-allowed",
-                }}
-              >
-                📱 WhatsApp
-              </button>
-              <button
-                onClick={shareOnTelegram}
-                disabled={currentRoom.predictions.length === 0 || saving}
-                style={{
-                  flex: 1,
-                  minWidth: "140px",
-                  padding: "16px",
-                  background: currentRoom.predictions.length > 0 ? "rgba(0,136,204,0.1)" : "rgba(255,255,255,0.05)",
-                  color: currentRoom.predictions.length > 0 ? "#0088CC" : "rgba(255,255,255,0.3)",
-                  border: currentRoom.predictions.length > 0 ? "1px solid rgba(0,136,204,0.3)" : "1px solid rgba(255,255,255,0.1)",
-                  borderRadius: "10px",
-                  fontSize: "15px",
-                  fontWeight: "600",
-                  cursor: currentRoom.predictions.length > 0 ? "pointer" : "not-allowed",
-                }}
-              >
-                ✈️ Telegram
-              </button>
-              <button
-                onClick={copyLink}
-                disabled={currentRoom.predictions.length === 0 || saving}
-                style={{
-                  flex: 1,
-                  minWidth: "140px",
-                  padding: "16px",
-                  background: currentRoom.predictions.length > 0 ? "rgba(138,43,226,0.1)" : "rgba(255,255,255,0.05)",
-                  color: currentRoom.predictions.length > 0 ? "#8A2BE2" : "rgba(255,255,255,0.3)",
-                  border: currentRoom.predictions.length > 0 ? "1px solid rgba(138,43,226,0.3)" : "1px solid rgba(255,255,255,0.1)",
-                  borderRadius: "10px",
-                  fontSize: "15px",
-                  fontWeight: "600",
-                  cursor: currentRoom.predictions.length > 0 ? "pointer" : "not-allowed",
-                }}
-              >
-                🔗 Copy Link
-              </button>
-            </div>
-          </div>
-        )}
-
-        {/* Templates Modal */}
-        {showTemplates && (
-          <div style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, background: "rgba(0,0,0,0.9)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000, padding: "20px" }}>
-            <div style={{ background: "#121212", padding: "25px", borderRadius: "16px", maxWidth: "500px", width: "100%", maxHeight: "80vh", overflow: "auto", border: "1px solid rgba(138,43,226,0.3)" }}>
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "20px" }}>
-                <h3 style={{ color: "#FFF", fontSize: "18px", margin: 0 }}>💡 Template Questions</h3>
-                <button onClick={() => setShowTemplates(false)} style={{ background: "transparent", border: "none", color: "rgba(255,255,255,0.5)", fontSize: "20px", cursor: "pointer" }}>✕</button>
-              </div>
-              
-              <p style={{ color: "rgba(255,255,255,0.5)", fontSize: "13px", marginBottom: "15px" }}>
-                {CATEGORIES.find(c => c.id === selectedCategory)?.icon} {CATEGORIES.find(c => c.id === selectedCategory)?.name} templates:
-              </p>
-              
-              <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
-                {TEMPLATES[selectedCategory as keyof typeof TEMPLATES]?.map((template, i) => (
-                  <button
-                    key={i}
-                    onClick={() => addFromTemplate(template)}
-                    style={{ padding: "12px 15px", background: "rgba(255,255,255,0.05)", color: "#FFF", border: "1px solid rgba(255,255,255,0.1)", borderRadius: "8px", fontSize: "14px", cursor: "pointer", textAlign: "left", display: "flex", justifyContent: "space-between", alignItems: "center" }}
-                  >
-                    <span>{template.q}</span>
-                    <span style={{ color: "rgba(255,255,255,0.4)", fontSize: "11px" }}>
-                      {template.type === "yesno" ? "👍👎" : template.type === "multiple" ? "📋" : "✏️"}
-                    </span>
-                  </button>
-                ))}
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* Live Sports Modal */}
-        {showLiveSports && (
-          <div style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, background: "rgba(0,0,0,0.9)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000, padding: "20px" }}>
-            <div style={{ background: "#121212", padding: "25px", borderRadius: "16px", maxWidth: "550px", width: "100%", maxHeight: "85vh", overflow: "auto", border: "1px solid rgba(0,174,239,0.3)" }}>
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "20px" }}>
-                <h3 style={{ color: "#FFF", fontSize: "18px", margin: 0 }}>⚽ Live Sports Events</h3>
-                <button onClick={() => setShowLiveSports(false)} style={{ background: "transparent", border: "none", color: "rgba(255,255,255,0.5)", fontSize: "20px", cursor: "pointer" }}>✕</button>
-              </div>
-              
-              {/* Sport Category Tabs */}
-              <div style={{ display: "flex", gap: "8px", flexWrap: "wrap", marginBottom: "15px" }}>
-                {SPORT_CATEGORIES.map(sport => (
-                  <button
-                    key={sport.id}
-                    onClick={() => {
-                      setSelectedSport(sport.id);
-                      fetchSportsEvents(sport.id);
-                    }}
-                    style={{ 
-                      padding: "8px 14px", 
-                      background: selectedSport === sport.id ? "rgba(0,174,239,0.2)" : "rgba(255,255,255,0.05)", 
-                      color: selectedSport === sport.id ? "#00AEEF" : "rgba(255,255,255,0.6)", 
-                      border: selectedSport === sport.id ? "2px solid #00AEEF" : "1px solid rgba(255,255,255,0.1)", 
-                      borderRadius: "8px", 
-                      fontSize: "13px", 
-                      cursor: "pointer",
-                      display: "flex",
-                      alignItems: "center",
-                      gap: "5px"
-                    }}
-                  >
-                    {sport.icon} {sport.name}
-                  </button>
-                ))}
-              </div>
-              
-              <p style={{ color: "rgba(255,255,255,0.5)", fontSize: "13px", marginBottom: "15px" }}>
-                Click an event to create a prediction room:
-              </p>
-              
-              {loadingSports ? (
-                <div style={{ textAlign: "center", padding: "40px" }}>
-                  <p style={{ color: "#00AEEF" }}>Loading events...</p>
-                </div>
-              ) : (
-                <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
-                  {sportsEvents.length === 0 ? (
-                    <p style={{ color: "rgba(255,255,255,0.4)", textAlign: "center", padding: "20px" }}>
-                      No upcoming events. Try another sport!
-                    </p>
-                  ) : (
-                    sportsEvents.map((event) => (
-                      <button
-                        key={event.id}
-                        onClick={() => addFromSportsEvent(event)}
-                        style={{ padding: "15px", background: "rgba(255,255,255,0.05)", color: "#FFF", border: "1px solid rgba(255,255,255,0.1)", borderRadius: "10px", cursor: "pointer", textAlign: "left" }}
-                      >
-                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "8px" }}>
-                          <span style={{ color: "#00AEEF", fontSize: "12px", fontWeight: "600" }}>{event.icon} {event.league}</span>
-                          <span style={{ color: "rgba(255,255,255,0.4)", fontSize: "12px" }}>{event.date} • {event.time}</span>
-                        </div>
-                        <p style={{ color: "#FFF", fontSize: "16px", margin: 0, fontWeight: "600" }}>
-                          {event.home} vs {event.away}
-                        </p>
-                      </button>
-                    ))
-                  )}
-                </div>
-              )}
-            </div>
-          </div>
-        )}
+        {/* Create Room Button */}
+        <button
+          onClick={() => setShowCreateRoom(true)}
+          style={{ width: "100%", padding: "18px", background: "linear-gradient(135deg, #8A2BE2, #00AEEF)", border: "none", borderRadius: "12px", marginBottom: "25px", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: "10px" }}
+        >
+          <span style={{ fontSize: "20px" }}>✨</span>
+          <span style={{ color: "#FFF", fontSize: "16px", fontWeight: "600" }}>Create Prediction Room</span>
+        </button>
 
         {/* My Rooms */}
-        {myRooms.length > 0 && (
-          <div style={{ background: "#121212", padding: "25px", borderRadius: "16px", border: "1px solid rgba(138,43,226,0.2)" }}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "20px" }}>
-              <h2 style={{ color: "#FFF", fontSize: "18px", margin: 0 }}>📊 My Rooms ({myRooms.length})</h2>
-              <button
-                onClick={refreshRooms}
-                style={{ padding: "8px 16px", background: "rgba(0,174,239,0.1)", color: "#00AEEF", border: "1px solid rgba(0,174,239,0.3)", borderRadius: "6px", fontSize: "13px", cursor: "pointer" }}
-              >
-                🔄 Refresh
-              </button>
-            </div>
-            
-            <div style={{ display: "flex", flexDirection: "column", gap: "15px" }}>
+        <div style={{ background: "#121212", padding: "20px", borderRadius: "16px", border: "1px solid rgba(138,43,226,0.2)" }}>
+          <h2 style={{ color: "#FFF", fontSize: "18px", marginBottom: "15px" }}>📋 My Rooms ({myRooms.length})</h2>
+
+          {loadingRooms ? (
+            <p style={{ color: "rgba(255,255,255,0.5)", textAlign: "center", padding: "20px" }}>Loading...</p>
+          ) : myRooms.length === 0 ? (
+            <p style={{ color: "rgba(255,255,255,0.4)", textAlign: "center", padding: "20px", fontSize: "14px" }}>No rooms yet. Create your first one!</p>
+          ) : (
+            <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
               {myRooms.map(room => (
-                <div key={room.id} style={{ background: "rgba(255,255,255,0.03)", padding: "20px", borderRadius: "12px", border: "1px solid rgba(138,43,226,0.2)" }}>
-                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "15px" }}>
-                    <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
-                      <span style={{ fontSize: "18px" }}>{CATEGORIES.find(c => c.id === room.category)?.icon || "🔮"}</span>
-                      <h3 style={{ color: "#FFF", fontSize: "16px", margin: 0 }}>{room.name}</h3>
+                <div key={room.id} style={{ background: "rgba(255,255,255,0.03)", padding: "15px", borderRadius: "10px", border: "1px solid rgba(138,43,226,0.15)" }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: "12px", marginBottom: "10px" }}>
+                    <span style={{ fontSize: "24px" }}>{getCategoryIcon(room.category)}</span>
+                    <div style={{ flex: 1 }}>
+                      <h3 style={{ color: "#FFF", fontSize: "15px", margin: 0 }}>{room.name}</h3>
+                      <p style={{ color: "rgba(255,255,255,0.4)", fontSize: "12px", margin: "3px 0 0 0" }}>
+                        {room.predictions?.length || 0} predictions • {room.predictions?.reduce((sum, p) => sum + (p.responses?.length || 0), 0) || 0} responses
+                      </p>
                     </div>
-                    <span style={{ color: "rgba(255,255,255,0.4)", fontSize: "12px" }}>ID: {room.id}</span>
                   </div>
-                  
-                  <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
-                    {room.predictions.map(pred => {
-                      const isExpired = timeLeft[pred.id] === "Expired" || new Date(pred.deadline) < new Date();
-                      const responseStats = getResponseStats(pred.responses || []);
-                      const totalResponses = pred.responses?.length || 0;
-                      
-                      return (
-                        <div key={pred.id} style={{ background: "rgba(0,0,0,0.3)", padding: "15px", borderRadius: "8px", border: pred.resolved ? "1px solid rgba(0,230,163,0.3)" : "1px solid rgba(255,255,255,0.1)" }}>
-                          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: "10px" }}>
-                            <p style={{ color: "#FFF", fontSize: "14px", margin: 0, flex: 1 }}>{pred.question}</p>
-                            <span style={{ color: "#FFC400", fontSize: "12px", background: "rgba(255,196,0,0.1)", padding: "3px 10px", borderRadius: "10px", marginLeft: "10px", whiteSpace: "nowrap" }}>🏆 {pred.pointValue || 50} pts</span>
-                          </div>
-                          
-                          <div style={{ display: "flex", alignItems: "center", gap: "10px", flexWrap: "wrap", marginBottom: "10px" }}>
-                            {pred.resolved ? (
-                              <span style={{ background: "rgba(0,230,163,0.1)", color: "#00E6A3", padding: "4px 10px", borderRadius: "20px", fontSize: "12px" }}>
-                                ✅ Answer: {pred.correctAnswer}
-                              </span>
-                            ) : (
-                              <span style={{ background: isExpired ? "rgba(255,45,146,0.1)" : "rgba(255,196,0,0.1)", color: isExpired ? "#FF2D92" : "#FFC400", padding: "4px 10px", borderRadius: "20px", fontSize: "12px" }}>
-                                {isExpired ? "⏰ Expired" : `⏳ ${timeLeft[pred.id] || "24h"}`}
-                              </span>
-                            )}
-                            <span style={{ color: "rgba(255,255,255,0.4)", fontSize: "12px" }}>
-                              👥 {totalResponses} response{totalResponses !== 1 ? "s" : ""}
-                            </span>
-                          </div>
-
-                          {pred.resolved && pred.winners && pred.winners.length > 0 && (
-                            <div style={{ background: "rgba(0,230,163,0.1)", padding: "10px", borderRadius: "6px", marginBottom: "10px" }}>
-                              <p style={{ color: "#00E6A3", fontSize: "13px", margin: 0 }}>
-                                🏆 Winners ({pred.pointValue} pts each): <strong>{pred.winners.join(", ")}</strong>
-                              </p>
-                            </div>
-                          )}
-
-                          {pred.resolved && (!pred.winners || pred.winners.length === 0) && (
-                            <div style={{ background: "rgba(255,196,0,0.1)", padding: "10px", borderRadius: "6px", marginBottom: "10px" }}>
-                              <p style={{ color: "#FFC400", fontSize: "13px", margin: 0 }}>
-                                😔 No winners this round
-                              </p>
-                            </div>
-                          )}
-
-                          {totalResponses > 0 && (
-                            <div style={{ marginBottom: "10px" }}>
-                              <div 
-                                onClick={() => setExpandedRoom(expandedRoom === pred.id ? null : pred.id)}
-                                style={{ cursor: "pointer", color: "#00AEEF", fontSize: "12px", marginBottom: "8px" }}
-                              >
-                                {expandedRoom === pred.id ? "▼ Hide responses" : "▶ Show responses"}
-                              </div>
-                              
-                              <div style={{ display: "flex", gap: "8px", flexWrap: "wrap", marginBottom: "8px" }}>
-                                {Object.entries(responseStats).map(([answer, count]) => (
-                                  <span key={answer} style={{ background: "rgba(138,43,226,0.1)", color: "#8A2BE2", padding: "4px 10px", borderRadius: "12px", fontSize: "11px" }}>
-                                    {answer}: {Math.round((count / totalResponses) * 100)}% ({count})
-                                  </span>
-                                ))}
-                              </div>
-                              
-                              {expandedRoom === pred.id && (
-                                <div style={{ background: "rgba(0,0,0,0.2)", padding: "10px", borderRadius: "6px", marginTop: "8px" }}>
-                                  {pred.responses?.map((r, i) => {
-                                    const isWinner = pred.resolved && pred.winners?.includes(r.username);
-                                    return (
-                                      <div key={i} style={{ display: "flex", justifyContent: "space-between", padding: "5px 0", borderBottom: i < (pred.responses?.length || 0) - 1 ? "1px solid rgba(255,255,255,0.1)" : "none" }}>
-                                        <span style={{ color: isWinner ? "#00E6A3" : "#FFF", fontSize: "12px" }}>
-                                          {r.username} {isWinner && "🏆"}
-                                        </span>
-                                        <span style={{ color: isWinner ? "#00E6A3" : "#8A2BE2", fontSize: "12px", fontWeight: "600" }}>
-                                          {r.answer}
-                                        </span>
-                                      </div>
-                                    );
-                                  })}
-                                </div>
-                              )}
-                            </div>
-                          )}
-                          
-                          {!pred.resolved && (
-                            <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
-                              <button
-                                onClick={() => sendReminder(room, pred)}
-                                style={{ padding: "8px 12px", background: "rgba(37,211,102,0.1)", color: "#25D366", border: "1px solid rgba(37,211,102,0.3)", borderRadius: "6px", fontSize: "12px", cursor: "pointer" }}
-                              >
-                                📱 Reminder
-                              </button>
-                              <button
-                                onClick={() => {
-                                  const answer = prompt("Enter the correct answer:");
-                                  if (answer) resolvePrediction(room.id, pred.id, answer);
-                                }}
-                                style={{ padding: "8px 12px", background: "rgba(0,230,163,0.1)", color: "#00E6A3", border: "1px solid rgba(0,230,163,0.3)", borderRadius: "6px", fontSize: "12px", cursor: "pointer" }}
-                              >
-                                ✍️ Manual
-                              </button>
-                              <button
-                                onClick={() => resolveWithAI(room, pred)}
-                                style={{ padding: "8px 12px", background: "rgba(138,43,226,0.1)", color: "#8A2BE2", border: "1px solid rgba(138,43,226,0.3)", borderRadius: "6px", fontSize: "12px", cursor: "pointer" }}
-                              >
-                                🤖 Use AI
-                              </button>
-                            </div>
-                          )}
-                        </div>
-                      );
-                    })}
+                  <div style={{ display: "flex", gap: "8px" }}>
+                    <button onClick={() => window.location.href = `/room/${room.id}`} style={{ flex: 1, padding: "10px", background: "rgba(138,43,226,0.1)", color: "#8A2BE2", border: "1px solid rgba(138,43,226,0.3)", borderRadius: "6px", fontSize: "13px", cursor: "pointer" }}>View</button>
+                    <button onClick={() => shareRoom(room.id, room.name)} style={{ flex: 1, padding: "10px", background: "rgba(37,211,102,0.1)", color: "#25D366", border: "1px solid rgba(37,211,102,0.3)", borderRadius: "6px", fontSize: "13px", cursor: "pointer" }}>📱 Share</button>
                   </div>
-                  
-                  <button
-                    onClick={() => {
-                      const categoryIcon = CATEGORIES.find(c => c.id === room.category)?.icon || "🔮";
-                      const predictionsList = room.predictions.map((p, i) => `${i + 1}. ${p.question} (🏆 ${p.pointValue || 50} pts)`).join("\n");
-                      const message = `${categoryIcon} *${room.name}*\n\n${predictionsList}\n\n🎁 +10 bonus points for joining!\n\n👉 https://omnix-app.vercel.app/room/${room.id}`;
-                      window.open(`https://wa.me/?text=${encodeURIComponent(message)}`, "_blank");
-                    }}
-                    style={{ marginTop: "15px", padding: "10px 15px", background: "rgba(37,211,102,0.1)", color: "#25D366", border: "1px solid rgba(37,211,102,0.3)", borderRadius: "6px", fontSize: "13px", cursor: "pointer", width: "100%" }}
-                  >
-                    📱 Share Again
-                  </button>
                 </div>
               ))}
+            </div>
+          )}
+        </div>
+
+        {/* Sports Modal */}
+        {showSportsModal && (
+          <div style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, background: "rgba(0,0,0,0.9)", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center", padding: "20px" }}>
+            <div style={{ background: "#121212", borderRadius: "16px", width: "100%", maxWidth: "500px", maxHeight: "80vh", overflow: "hidden", border: "1px solid rgba(138,43,226,0.3)" }}>
+              <div style={{ padding: "20px", borderBottom: "1px solid rgba(255,255,255,0.1)", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                <h2 style={{ color: "#FFF", fontSize: "18px", margin: 0 }}>⚽ Live Sports Events</h2>
+                <button onClick={() => setShowSportsModal(false)} style={{ background: "none", border: "none", color: "#FFF", fontSize: "24px", cursor: "pointer" }}>×</button>
+              </div>
+
+              {/* Sport Tabs */}
+              <div style={{ padding: "15px", display: "flex", gap: "8px", flexWrap: "wrap", borderBottom: "1px solid rgba(255,255,255,0.1)" }}>
+                {sportsList.map(sport => (
+                  <button
+                    key={sport.id}
+                    onClick={() => handleSportChange(sport.id)}
+                    style={{ padding: "8px 14px", background: selectedSport === sport.id ? "linear-gradient(135deg, #8A2BE2, #00AEEF)" : "rgba(255,255,255,0.05)", color: "#FFF", border: selectedSport === sport.id ? "none" : "1px solid rgba(255,255,255,0.1)", borderRadius: "20px", fontSize: "13px", cursor: "pointer", display: "flex", alignItems: "center", gap: "5px" }}
+                  >
+                    <span>{sport.icon}</span>
+                    <span>{sport.name}</span>
+                  </button>
+                ))}
+              </div>
+
+              {/* Events List */}
+              <div style={{ padding: "15px", overflowY: "auto", maxHeight: "400px" }}>
+                <p style={{ color: "rgba(255,255,255,0.5)", fontSize: "12px", marginBottom: "12px" }}>Click an event to create a prediction room:</p>
+
+                {sportsLoading ? (
+                  <p style={{ color: "rgba(255,255,255,0.5)", textAlign: "center", padding: "30px" }}>Loading events...</p>
+                ) : sportsEvents.length === 0 ? (
+                  <p style={{ color: "rgba(255,255,255,0.5)", textAlign: "center", padding: "30px" }}>No upcoming events. Try another sport!</p>
+                ) : (
+                  <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
+                    {sportsEvents.map(event => (
+                      <button
+                        key={event.id}
+                        onClick={() => createRoomFromEvent(event)}
+                        style={{ width: "100%", padding: "15px", background: "rgba(255,255,255,0.03)", border: "1px solid rgba(138,43,226,0.2)", borderRadius: "10px", cursor: "pointer", textAlign: "left" }}
+                      >
+                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "8px" }}>
+                          <span style={{ color: "#8A2BE2", fontSize: "11px", fontWeight: "600" }}>{event.league}</span>
+                          <span style={{ color: "rgba(255,255,255,0.4)", fontSize: "11px" }}>{formatDate(event.date)} • {event.time}</span>
+                        </div>
+                        <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: "15px" }}>
+                          <span style={{ color: "#FFF", fontSize: "15px", fontWeight: "600", flex: 1, textAlign: "right" }}>{event.home}</span>
+                          <span style={{ color: "rgba(255,255,255,0.3)", fontSize: "12px" }}>vs</span>
+                          <span style={{ color: "#FFF", fontSize: "15px", fontWeight: "600", flex: 1, textAlign: "left" }}>{event.away}</span>
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Create Room Modal */}
+        {showCreateRoom && (
+          <div style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, background: "rgba(0,0,0,0.9)", zIndex: 1000, overflowY: "auto", padding: "20px" }}>
+            <div style={{ maxWidth: "500px", margin: "0 auto", background: "#121212", borderRadius: "16px", padding: "25px", border: "1px solid rgba(138,43,226,0.3)" }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "20px" }}>
+                <h2 style={{ color: "#FFF", fontSize: "20px", margin: 0 }}>✨ Create Room</h2>
+                <button onClick={() => { setShowCreateRoom(false); setRoomName(""); setPredictions([]); }} style={{ background: "none", border: "none", color: "#FFF", fontSize: "24px", cursor: "pointer" }}>×</button>
+              </div>
+
+              {/* Room Details */}
+              <div style={{ marginBottom: "20px" }}>
+                <label style={{ color: "rgba(255,255,255,0.7)", fontSize: "13px", display: "block", marginBottom: "8px" }}>Room Name</label>
+                <input
+                  type="text"
+                  value={roomName}
+                  onChange={(e) => setRoomName(e.target.value)}
+                  placeholder="e.g., Champions League Final"
+                  style={{ width: "100%", padding: "12px", borderRadius: "8px", border: "1px solid rgba(255,255,255,0.1)", background: "rgba(255,255,255,0.05)", color: "#FFF", fontSize: "15px", boxSizing: "border-box" }}
+                />
+              </div>
+
+              <div style={{ marginBottom: "20px" }}>
+                <label style={{ color: "rgba(255,255,255,0.7)", fontSize: "13px", display: "block", marginBottom: "8px" }}>Category</label>
+                <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
+                  {[
+                    { id: "sports", icon: "🏆", label: "Sports" },
+                    { id: "entertainment", icon: "🎬", label: "Entertainment" },
+                    { id: "fun", icon: "🎉", label: "Fun" },
+                    { id: "work", icon: "💼", label: "Work" }
+                  ].map(cat => (
+                    <button
+                      key={cat.id}
+                      onClick={() => setRoomCategory(cat.id)}
+                      style={{ padding: "10px 15px", background: roomCategory === cat.id ? "linear-gradient(135deg, #8A2BE2, #00AEEF)" : "rgba(255,255,255,0.05)", color: "#FFF", border: roomCategory === cat.id ? "none" : "1px solid rgba(255,255,255,0.1)", borderRadius: "8px", fontSize: "13px", cursor: "pointer" }}
+                    >
+                      {cat.icon} {cat.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Predictions */}
+              <div style={{ marginBottom: "20px" }}>
+                <label style={{ color: "rgba(255,255,255,0.7)", fontSize: "13px", display: "block", marginBottom: "12px" }}>Predictions ({predictions.length})</label>
+
+                {predictions.map((pred, i) => (
+                  <div key={i} style={{ background: "rgba(138,43,226,0.1)", padding: "12px", borderRadius: "8px", marginBottom: "10px", display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+                    <div style={{ flex: 1 }}>
+                      <p style={{ color: "#FFF", fontSize: "14px", margin: "0 0 5px 0" }}>{pred.question}</p>
+                      <p style={{ color: "rgba(255,255,255,0.4)", fontSize: "11px", margin: 0 }}>
+                        🏆 {pred.pointValue} pts • ⏰ {new Date(pred.deadline).toLocaleString()}
+                        {pred.answerType === "yesno" && " • Yes/No"}
+                        {pred.answerType === "multiple" && ` • ${pred.options.length} options`}
+                      </p>
+                    </div>
+                    <button onClick={() => removePrediction(i)} style={{ background: "rgba(255,45,146,0.2)", color: "#FF2D92", border: "none", borderRadius: "4px", padding: "5px 10px", fontSize: "12px", cursor: "pointer" }}>✕</button>
+                  </div>
+                ))}
+
+                {/* Add Prediction Form */}
+                <div style={{ background: "rgba(255,255,255,0.03)", padding: "15px", borderRadius: "8px", marginTop: "15px" }}>
+                  <input
+                    type="text"
+                    value={newQuestion}
+                    onChange={(e) => setNewQuestion(e.target.value)}
+                    placeholder="Enter your prediction question..."
+                    style={{ width: "100%", padding: "12px", borderRadius: "8px", border: "1px solid rgba(255,255,255,0.1)", background: "rgba(255,255,255,0.05)", color: "#FFF", fontSize: "14px", marginBottom: "10px", boxSizing: "border-box" }}
+                  />
+
+                  <div style={{ display: "flex", gap: "10px", marginBottom: "10px", flexWrap: "wrap" }}>
+                    <div style={{ flex: 1, minWidth: "140px" }}>
+                      <label style={{ color: "rgba(255,255,255,0.5)", fontSize: "11px", display: "block", marginBottom: "5px" }}>Deadline</label>
+                      <input
+                        type="datetime-local"
+                        value={newDeadline}
+                        onChange={(e) => setNewDeadline(e.target.value)}
+                        style={{ width: "100%", padding: "10px", borderRadius: "6px", border: "1px solid rgba(255,255,255,0.1)", background: "rgba(255,255,255,0.05)", color: "#FFF", fontSize: "13px", boxSizing: "border-box" }}
+                      />
+                    </div>
+                    <div style={{ width: "100px" }}>
+                      <label style={{ color: "rgba(255,255,255,0.5)", fontSize: "11px", display: "block", marginBottom: "5px" }}>Points</label>
+                      <input
+                        type="number"
+                        value={newPointValue}
+                        onChange={(e) => setNewPointValue(Number(e.target.value))}
+                        style={{ width: "100%", padding: "10px", borderRadius: "6px", border: "1px solid rgba(255,255,255,0.1)", background: "rgba(255,255,255,0.05)", color: "#FFF", fontSize: "13px", boxSizing: "border-box" }}
+                      />
+                    </div>
+                  </div>
+
+                  <div style={{ marginBottom: "10px" }}>
+                    <label style={{ color: "rgba(255,255,255,0.5)", fontSize: "11px", display: "block", marginBottom: "5px" }}>Answer Type</label>
+                    <div style={{ display: "flex", gap: "8px" }}>
+                      {[
+                        { id: "text", label: "Text" },
+                        { id: "yesno", label: "Yes/No" },
+                        { id: "multiple", label: "Multiple Choice" }
+                      ].map(type => (
+                        <button
+                          key={type.id}
+                          onClick={() => setNewAnswerType(type.id as "text" | "yesno" | "multiple")}
+                          style={{ padding: "8px 12px", background: newAnswerType === type.id ? "rgba(138,43,226,0.3)" : "rgba(255,255,255,0.05)", color: newAnswerType === type.id ? "#8A2BE2" : "#FFF", border: "1px solid rgba(138,43,226,0.2)", borderRadius: "6px", fontSize: "12px", cursor: "pointer" }}
+                        >
+                          {type.label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {newAnswerType === "multiple" && (
+                    <div style={{ marginBottom: "10px" }}>
+                      <label style={{ color: "rgba(255,255,255,0.5)", fontSize: "11px", display: "block", marginBottom: "5px" }}>Options</label>
+                      {newOptions.map((opt, i) => (
+                        <input
+                          key={i}
+                          type="text"
+                          value={opt}
+                          onChange={(e) => {
+                            const updated = [...newOptions];
+                            updated[i] = e.target.value;
+                            setNewOptions(updated);
+                          }}
+                          placeholder={`Option ${i + 1}`}
+                          style={{ width: "100%", padding: "8px", borderRadius: "6px", border: "1px solid rgba(255,255,255,0.1)", background: "rgba(255,255,255,0.05)", color: "#FFF", fontSize: "13px", marginBottom: "5px", boxSizing: "border-box" }}
+                        />
+                      ))}
+                      <button
+                        onClick={() => setNewOptions([...newOptions, ""])}
+                        style={{ padding: "6px 12px", background: "rgba(0,174,239,0.1)", color: "#00AEEF", border: "1px solid rgba(0,174,239,0.3)", borderRadius: "6px", fontSize: "12px", cursor: "pointer" }}
+                      >
+                        + Add Option
+                      </button>
+                    </div>
+                  )}
+
+                  <button
+                    onClick={addPrediction}
+                    style={{ width: "100%", padding: "12px", background: "rgba(0,230,163,0.1)", color: "#00E6A3", border: "1px solid rgba(0,230,163,0.3)", borderRadius: "8px", fontSize: "14px", fontWeight: "600", cursor: "pointer" }}
+                  >
+                    + Add Prediction
+                  </button>
+                </div>
+              </div>
+
+              {/* Create Button */}
+              <button
+                onClick={createRoom}
+                disabled={creating || !roomName.trim() || predictions.length === 0}
+                style={{ width: "100%", padding: "16px", background: (roomName.trim() && predictions.length > 0) ? "linear-gradient(135deg, #8A2BE2, #00AEEF)" : "rgba(255,255,255,0.1)", color: (roomName.trim() && predictions.length > 0) ? "#FFF" : "rgba(255,255,255,0.3)", border: "none", borderRadius: "10px", fontSize: "16px", fontWeight: "600", cursor: (roomName.trim() && predictions.length > 0) ? "pointer" : "not-allowed" }}
+              >
+                {creating ? "Creating..." : "Create Room 🚀"}
+              </button>
             </div>
           </div>
         )}
