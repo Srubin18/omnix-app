@@ -3,18 +3,34 @@
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 
+interface UserStats {
+  totalPredictions: number;
+  correctPredictions: number;
+  roomsCreated: number;
+  roomsJoined: number;
+  points: number;
+  level: number;
+}
+
+interface Badge {
+  id: string;
+  name: string;
+  icon: string;
+  earned: boolean;
+}
+
 export default function HomePage() {
   const router = useRouter();
   const [username, setUsername] = useState("");
   const [roomName, setRoomName] = useState("");
   const [isLoading, setIsLoading] = useState(true);
+  const [stats, setStats] = useState<UserStats | null>(null);
+  const [badges, setBadges] = useState<Badge[]>([]);
 
   useEffect(() => {
-    // Check if user is logged in
     const userStr = localStorage.getItem("omnix-user");
     
     if (!userStr) {
-      // No user found, redirect to login
       router.push("/");
       return;
     }
@@ -22,9 +38,32 @@ export default function HomePage() {
     try {
       const user = JSON.parse(userStr);
       setUsername(user.username || user.name || "User");
+      
+      if (!user.stats) {
+        user.stats = {
+          totalPredictions: 0,
+          correctPredictions: 0,
+          roomsCreated: 0,
+          roomsJoined: 0,
+          points: 0,
+          level: 1
+        };
+        localStorage.setItem("omnix-user", JSON.stringify(user));
+      }
+      
+      setStats(user.stats);
+      
+      const allBadges: Badge[] = [
+        { id: "first_room", name: "Room Creator", icon: "🏠", earned: (user.stats?.roomsCreated || 0) >= 1 },
+        { id: "social", name: "Social Butterfly", icon: "🦋", earned: (user.stats?.roomsJoined || 0) >= 5 },
+        { id: "points", name: "Points Master", icon: "💎", earned: (user.stats?.points || 0) >= 100 },
+        { id: "level", name: "Rising Star", icon: "⭐", earned: (user.stats?.level || 1) >= 3 },
+        { id: "predictor", name: "Predictor", icon: "🔮", earned: (user.stats?.totalPredictions || 0) >= 1 },
+        { id: "accurate", name: "Sharp Shooter", icon: "🎯", earned: (user.stats?.correctPredictions || 0) >= 5 }
+      ];
+      setBadges(allBadges);
       setIsLoading(false);
     } catch (error) {
-      console.error("Error parsing user data:", error);
       router.push("/");
     }
   }, [router]);
@@ -35,185 +74,36 @@ export default function HomePage() {
       return;
     }
 
-    // Generate simple room ID
     const roomId = Math.random().toString(36).substring(2, 10);
     
-    // Create WhatsApp share message
+    const userStr = localStorage.getItem("omnix-user");
+    if (userStr) {
+      const user = JSON.parse(userStr);
+      if (!user.stats) user.stats = { roomsCreated: 0, points: 0, level: 1 };
+      user.stats.roomsCreated = (user.stats.roomsCreated || 0) + 1;
+      user.stats.points = (user.stats.points || 0) + 20;
+      user.stats.level = Math.floor(user.stats.points / 100) + 1;
+      localStorage.setItem("omnix-user", JSON.stringify(user));
+      setStats(user.stats);
+    }
+    
     const message = `Join my Omnix prediction room: *${roomName}*\n\nClick to join:\nhttps://omnix-app.vercel.app/room/${roomId}`;
-    
-    // Encode message for URL
-    const encodedMessage = encodeURIComponent(message);
-    
-    // Open WhatsApp with the message
-    const whatsappUrl = `https://wa.me/?text=${encodedMessage}`;
-    window.open(whatsappUrl, "_blank");
-    
-    // Clear the room name input
+    window.open(`https://wa.me/?text=${encodeURIComponent(message)}`, "_blank");
     setRoomName("");
   };
 
   if (isLoading) {
     return (
-      <div style={{
-        minHeight: "100vh",
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "center",
-        background: "linear-gradient(135deg, #667eea 0%, #764ba2 100%)"
-      }}>
-        <p style={{ color: "white", fontSize: "18px" }}>Loading...</p>
+      <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", background: "#000" }}>
+        <p style={{ color: "#8A2BE2", fontSize: "18px" }}>Loading...</p>
       </div>
     );
   }
 
+  const earnedBadges = badges.filter(b => b.earned);
+
   return (
-    <div style={{
-      minHeight: "100vh",
-      background: "linear-gradient(135deg, #667eea 0%, #764ba2 100%)",
-      padding: "20px"
-    }}>
-      <div style={{
-        maxWidth: "800px",
-        margin: "0 auto",
-        paddingTop: "40px"
-      }}>
-        {/* Header */}
-        <div style={{
-          background: "white",
-          padding: "30px",
-          borderRadius: "12px",
-          boxShadow: "0 10px 40px rgba(0,0,0,0.1)",
-          marginBottom: "30px"
-        }}>
-          <h1 style={{
-            fontSize: "36px",
-            fontWeight: "bold",
-            color: "#333",
-            marginBottom: "10px"
-          }}>
-            Welcome to Omnix, {username}! 🎯
-          </h1>
-          <p style={{
-            color: "#666",
-            fontSize: "16px"
-          }}>
-            Create prediction rooms and share them with your friends
-          </p>
-        </div>
-
-        {/* Create Room Card */}
-        <div style={{
-          background: "white",
-          padding: "40px",
-          borderRadius: "12px",
-          boxShadow: "0 10px 40px rgba(0,0,0,0.1)"
-        }}>
-          <h2 style={{
-            fontSize: "24px",
-            fontWeight: "600",
-            color: "#333",
-            marginBottom: "20px"
-          }}>
-            Create a Prediction Room
-          </h2>
-
-          <div style={{ marginBottom: "20px" }}>
-            <label style={{
-              display: "block",
-              marginBottom: "10px",
-              color: "#333",
-              fontWeight: "500",
-              fontSize: "14px"
-            }}>
-              Room Name
-            </label>
-            <input
-              type="text"
-              value={roomName}
-              onChange={(e) => setRoomName(e.target.value)}
-              placeholder="e.g., 'Premier League Winners 2025'"
-              style={{
-                width: "100%",
-                padding: "14px",
-                border: "2px solid #ddd",
-                borderRadius: "8px",
-                fontSize: "16px",
-                boxSizing: "border-box",
-                transition: "border-color 0.3s"
-              }}
-              onFocus={(e) => e.currentTarget.style.borderColor = "#667eea"}
-              onBlur={(e) => e.currentTarget.style.borderColor = "#ddd"}
-            />
-          </div>
-
-          <button
-            onClick={handleCreateRoom}
-            style={{
-              width: "100%",
-              padding: "16px",
-              background: "linear-gradient(135deg, #25D366 0%, #128C7E 100%)",
-              color: "white",
-              border: "none",
-              borderRadius: "8px",
-              fontSize: "18px",
-              fontWeight: "600",
-              cursor: "pointer",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              gap: "10px",
-              transition: "transform 0.2s"
-            }}
-            onMouseOver={(e) => e.currentTarget.style.transform = "translateY(-2px)"}
-            onMouseOut={(e) => e.currentTarget.style.transform = "translateY(0)"}
-          >
-            <span>📱</span>
-            Share on WhatsApp
-          </button>
-
-          <p style={{
-            marginTop: "15px",
-            fontSize: "13px",
-            color: "#888",
-            textAlign: "center"
-          }}>
-            Create a room and share the link with friends via WhatsApp
-          </p>
-        </div>
-
-        {/* Logout Button */}
-        <div style={{
-          marginTop: "30px",
-          textAlign: "center"
-        }}>
-          <button
-            onClick={() => {
-              localStorage.removeItem("omnix-user");
-              router.push("/");
-            }}
-            style={{
-              padding: "10px 20px",
-              background: "transparent",
-              color: "white",
-              border: "2px solid white",
-              borderRadius: "6px",
-              fontSize: "14px",
-              cursor: "pointer",
-              transition: "all 0.3s"
-            }}
-            onMouseOver={(e) => {
-              e.currentTarget.style.background = "white";
-              e.currentTarget.style.color = "#667eea";
-            }}
-            onMouseOut={(e) => {
-              e.currentTarget.style.background = "transparent";
-              e.currentTarget.style.color = "white";
-            }}
-          >
-            Logout
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}
+    <div style={{ minHeight: "100vh", background: "#000", padding: "20px" }}>
+      <div style={{ maxWidth: "1000px", margin: "0 auto", paddingTop: "40px" }}>
+        
+        {/* Header *
