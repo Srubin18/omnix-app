@@ -22,7 +22,8 @@ export default function HomePage() {
     const roomId = Math.random().toString(36).substring(2, 8);
 
     // WhatsApp message
-    const whatsappMsg = `Join my Omnix prediction room: *${roomName}*\n\nClick to join:\nhttps://omnix-app.vercel.app/room/${roomId}`;
+  const whatsappMsg = `Join my Omnix prediction room: *${roomName}*\n\nClick to join:\nhttps://omnix-app.vercel.app/room/${roomId}`;
+
 
     const url = "https://wa.me/?text=" + encodeURIComponent(whatsappMsg);
 
