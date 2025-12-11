@@ -77,16 +77,14 @@ const TEMPLATES = {
   ]
 };
 
-// Live Sports Events (simulated - in production, fetch from API)
-const LIVE_SPORTS = [
-  { id: "1", league: "Premier League", home: "Arsenal", away: "Chelsea", date: "2024-12-14", time: "15:00", icon: "⚽" },
-  { id: "2", league: "Premier League", home: "Man United", away: "Liverpool", date: "2024-12-15", time: "16:30", icon: "⚽" },
-  { id: "3", league: "La Liga", home: "Real Madrid", away: "Barcelona", date: "2024-12-14", time: "20:00", icon: "⚽" },
-  { id: "4", league: "NBA", home: "Lakers", away: "Warriors", date: "2024-12-13", time: "22:00", icon: "🏀" },
-  { id: "5", league: "NBA", home: "Celtics", away: "Heat", date: "2024-12-14", time: "19:30", icon: "🏀" },
-  { id: "6", league: "UFC 310", home: "Pantoja", away: "Asakura", date: "2024-12-14", time: "22:00", icon: "🥊" },
-  { id: "7", league: "NFL", home: "Cowboys", away: "Eagles", date: "2024-12-15", time: "20:20", icon: "🏈" },
-  { id: "8", league: "Champions League", home: "Bayern", away: "PSG", date: "2024-12-17", time: "21:00", icon: "⚽" },
+// Sports categories
+const SPORT_CATEGORIES = [
+  { id: "football", name: "Football", icon: "⚽" },
+  { id: "basketball", name: "Basketball", icon: "🏀" },
+  { id: "american_football", name: "NFL", icon: "🏈" },
+  { id: "mma", name: "MMA/UFC", icon: "🥊" },
+  { id: "tennis", name: "Tennis", icon: "🎾" },
+  { id: "cricket", name: "Cricket", icon: "🏏" },
 ];
 
 const CATEGORIES = [
@@ -115,6 +113,9 @@ export default function HomePage() {
   
   const [showTemplates, setShowTemplates] = useState(false);
   const [showLiveSports, setShowLiveSports] = useState(false);
+  const [sportsEvents, setSportsEvents] = useState<any[]>([]);
+  const [selectedSport, setSelectedSport] = useState("football");
+  const [loadingSports, setLoadingSports] = useState(false);
   
   const [aiLoading, setAiLoading] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -138,6 +139,19 @@ export default function HomePage() {
       }
     }
     setMyRooms(rooms);
+  };
+
+  const fetchSportsEvents = async (sport: string) => {
+    setLoadingSports(true);
+    try {
+      const res = await fetch(`/api/sports?sport=${sport}`);
+      const data = await res.json();
+      setSportsEvents(data.events || []);
+    } catch (e) {
+      console.error(e);
+      setSportsEvents([]);
+    }
+    setLoadingSports(false);
   };
 
   useEffect(() => {
@@ -279,17 +293,11 @@ export default function HomePage() {
     setShowTemplates(false);
   };
 
-  const addFromSportsEvent = (event: typeof LIVE_SPORTS[0]) => {
-    const roomName = `${event.home} vs ${event.away}`;
-    setRoomName(roomName);
-    setSelectedCategory("sports");
-    setShowLiveSports(false);
-    
-    // Auto-create room with event
+  const addFromSportsEvent = (event: any) => {
     const roomId = Math.random().toString(36).substring(2, 10);
     const newRoom: Room = {
       id: roomId,
-      name: roomName,
+      name: `${event.home} vs ${event.away}`,
       creator: username,
       predictions: [
         {
@@ -310,6 +318,7 @@ export default function HomePage() {
       category: "sports"
     };
     setCurrentRoom(newRoom);
+    setShowLiveSports(false);
   };
 
   const removePrediction = (predId: string) => {
@@ -657,7 +666,10 @@ export default function HomePage() {
 
             {/* Live Sports Button */}
             <button
-              onClick={() => setShowLiveSports(true)}
+              onClick={() => {
+                setShowLiveSports(true);
+                fetchSportsEvents(selectedSport);
+              }}
               style={{ width: "100%", padding: "14px", background: "linear-gradient(135deg, rgba(0,174,239,0.1), rgba(0,230,163,0.1))", color: "#00AEEF", border: "1px solid rgba(0,174,239,0.3)", borderRadius: "8px", fontSize: "14px", fontWeight: "600", cursor: "pointer", marginBottom: "15px", display: "flex", alignItems: "center", justifyContent: "center", gap: "8px" }}
             >
               ⚽ Browse Live Sports Events
@@ -948,33 +960,72 @@ export default function HomePage() {
         {/* Live Sports Modal */}
         {showLiveSports && (
           <div style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, background: "rgba(0,0,0,0.9)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000, padding: "20px" }}>
-            <div style={{ background: "#121212", padding: "25px", borderRadius: "16px", maxWidth: "500px", width: "100%", maxHeight: "80vh", overflow: "auto", border: "1px solid rgba(0,174,239,0.3)" }}>
+            <div style={{ background: "#121212", padding: "25px", borderRadius: "16px", maxWidth: "550px", width: "100%", maxHeight: "85vh", overflow: "auto", border: "1px solid rgba(0,174,239,0.3)" }}>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "20px" }}>
                 <h3 style={{ color: "#FFF", fontSize: "18px", margin: 0 }}>⚽ Live Sports Events</h3>
                 <button onClick={() => setShowLiveSports(false)} style={{ background: "transparent", border: "none", color: "rgba(255,255,255,0.5)", fontSize: "20px", cursor: "pointer" }}>✕</button>
+              </div>
+              
+              {/* Sport Category Tabs */}
+              <div style={{ display: "flex", gap: "8px", flexWrap: "wrap", marginBottom: "15px" }}>
+                {SPORT_CATEGORIES.map(sport => (
+                  <button
+                    key={sport.id}
+                    onClick={() => {
+                      setSelectedSport(sport.id);
+                      fetchSportsEvents(sport.id);
+                    }}
+                    style={{ 
+                      padding: "8px 14px", 
+                      background: selectedSport === sport.id ? "rgba(0,174,239,0.2)" : "rgba(255,255,255,0.05)", 
+                      color: selectedSport === sport.id ? "#00AEEF" : "rgba(255,255,255,0.6)", 
+                      border: selectedSport === sport.id ? "2px solid #00AEEF" : "1px solid rgba(255,255,255,0.1)", 
+                      borderRadius: "8px", 
+                      fontSize: "13px", 
+                      cursor: "pointer",
+                      display: "flex",
+                      alignItems: "center",
+                      gap: "5px"
+                    }}
+                  >
+                    {sport.icon} {sport.name}
+                  </button>
+                ))}
               </div>
               
               <p style={{ color: "rgba(255,255,255,0.5)", fontSize: "13px", marginBottom: "15px" }}>
                 Click an event to create a prediction room:
               </p>
               
-              <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
-                {LIVE_SPORTS.map((event) => (
-                  <button
-                    key={event.id}
-                    onClick={() => addFromSportsEvent(event)}
-                    style={{ padding: "15px", background: "rgba(255,255,255,0.05)", color: "#FFF", border: "1px solid rgba(255,255,255,0.1)", borderRadius: "10px", cursor: "pointer", textAlign: "left" }}
-                  >
-                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "8px" }}>
-                      <span style={{ color: "#00AEEF", fontSize: "12px", fontWeight: "600" }}>{event.icon} {event.league}</span>
-                      <span style={{ color: "rgba(255,255,255,0.4)", fontSize: "12px" }}>{event.date} • {event.time}</span>
-                    </div>
-                    <p style={{ color: "#FFF", fontSize: "16px", margin: 0, fontWeight: "600" }}>
-                      {event.home} vs {event.away}
+              {loadingSports ? (
+                <div style={{ textAlign: "center", padding: "40px" }}>
+                  <p style={{ color: "#00AEEF" }}>Loading events...</p>
+                </div>
+              ) : (
+                <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
+                  {sportsEvents.length === 0 ? (
+                    <p style={{ color: "rgba(255,255,255,0.4)", textAlign: "center", padding: "20px" }}>
+                      No upcoming events. Try another sport!
                     </p>
-                  </button>
-                ))}
-              </div>
+                  ) : (
+                    sportsEvents.map((event) => (
+                      <button
+                        key={event.id}
+                        onClick={() => addFromSportsEvent(event)}
+                        style={{ padding: "15px", background: "rgba(255,255,255,0.05)", color: "#FFF", border: "1px solid rgba(255,255,255,0.1)", borderRadius: "10px", cursor: "pointer", textAlign: "left" }}
+                      >
+                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "8px" }}>
+                          <span style={{ color: "#00AEEF", fontSize: "12px", fontWeight: "600" }}>{event.icon} {event.league}</span>
+                          <span style={{ color: "rgba(255,255,255,0.4)", fontSize: "12px" }}>{event.date} • {event.time}</span>
+                        </div>
+                        <p style={{ color: "#FFF", fontSize: "16px", margin: 0, fontWeight: "600" }}>
+                          {event.home} vs {event.away}
+                        </p>
+                      </button>
+                    ))
+                  )}
+                </div>
+              )}
             </div>
           </div>
         )}
