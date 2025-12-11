@@ -1,7 +1,6 @@
 "use client";
 
-import React from "react";
-import { useState, useEffect } from "react";
+import React, { useState, useEffect } from "react";
 
 export default function HomePage() {
   // Load stored user
@@ -9,6 +8,38 @@ export default function HomePage() {
     typeof window !== "undefined"
       ? JSON.parse(localStorage.getItem("omnix-user")) || {}
       : {};
+
+  // Room states
+  const [rooms, setRooms] = useState([]);
+  const [roomName, setRoomName] = useState("");
+
+  // Load stored rooms on page load
+  useEffect(() => {
+    const saved = JSON.parse(localStorage.getItem("omnix-rooms") || "[]");
+    setRooms(saved);
+  }, []);
+
+  const saveRooms = (newRooms) => {
+    setRooms(newRooms);
+    localStorage.setItem("omnix-rooms", JSON.stringify(newRooms));
+  };
+
+  // Create room
+  const createRoom = () => {
+    if (!roomName.trim()) return;
+
+    const id = Date.now(); // unique room ID
+
+    const newRoom = {
+      id,
+      name: roomName,
+      link: ⁠ https://omnix-app.vercel.app/room/${id} ⁠,
+    };
+
+    const updated = [...rooms, newRoom];
+    saveRooms(updated);
+    setRoomName("");
+  };
 
   return (
     <main
@@ -35,6 +66,8 @@ export default function HomePage() {
         <input
           type="text"
           placeholder="Room name"
+          value={roomName}
+          onChange={(e) => setRoomName(e.target.value)}
           style={{
             padding: "12px",
             fontSize: "16px",
@@ -45,6 +78,7 @@ export default function HomePage() {
         />
 
         <button
+          onClick={createRoom}
           style={{
             marginTop: "16px",
             padding: "12px 24px",
@@ -58,6 +92,54 @@ export default function HomePage() {
         >
           Create Room
         </button>
+      </div>
+
+      {/* --- Rooms List --- */}
+      <div style={{ marginTop: "60px" }}>
+        <h2>Your Rooms</h2>
+
+        {rooms.length === 0 && (
+          <p style={{ opacity: 0.6 }}>No rooms yet. Create one above.</p>
+        )}
+
+        {rooms.map((room) => (
+          <div
+            key={room.id}
+            style={{
+              margin: "20px auto",
+              padding: "20px",
+              width: "320px",
+              borderRadius: "8px",
+              background: "#f8f8f8",
+              textAlign: "left",
+            }}
+          >
+            <h3>{room.name}</h3>
+            <p style={{ fontSize: "14px", wordBreak: "break-all" }}>
+              {room.link}
+            </p>
+
+            <a
+              href={`https://wa.me/?text=Join my Omnix room: ${encodeURIComponent(
+                room.link
+              )}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              style={{
+                display: "inline-block",
+                marginTop: "10px",
+                padding: "10px 20px",
+                background: "#25D366",
+                color: "white",
+                borderRadius: "6px",
+                textDecoration: "none",
+                fontWeight: "bold",
+              }}
+            >
+              Share on WhatsApp
+            </a>
+          </div>
+        ))}
       </div>
     </main>
   );
