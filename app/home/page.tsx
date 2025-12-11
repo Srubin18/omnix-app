@@ -11,6 +11,8 @@ interface Prediction {
   responses: PredictionResponse[];
   resolved: boolean;
   correctAnswer?: string;
+  pointValue: number;
+  winners?: string[];
 }
 
 interface PredictionResponse {
@@ -39,6 +41,7 @@ export default function HomePage() {
   const [myRooms, setMyRooms] = useState<Room[]>([]);
   
   const [newQuestion, setNewQuestion] = useState("");
+  const [pointValue, setPointValue] = useState(50);
   const [aiLoading, setAiLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [timeLeft, setTimeLeft] = useState<{[key: string]: string}>({});
@@ -57,7 +60,6 @@ export default function HomePage() {
       setUsername(user.username || user.name || "User");
       setStats(user.stats || { points: 0, level: 1, roomsCreated: 0 });
       
-      // Load room IDs from localStorage, then fetch from database
       const roomIdsStr = localStorage.getItem(`omnix-room-ids-${user.username}`);
       if (roomIdsStr) {
         const roomIds = JSON.parse(roomIdsStr);
@@ -166,7 +168,9 @@ export default function HomePage() {
       createdAt: new Date().toISOString(),
       deadline: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
       responses: [],
-      resolved: false
+      resolved: false,
+      pointValue: pointValue,
+      winners: []
     };
 
     const updatedRoom = {
@@ -176,6 +180,7 @@ export default function HomePage() {
 
     setCurrentRoom(updatedRoom);
     setNewQuestion("");
+    setPointValue(50);
   };
 
   const removePrediction = (predId: string) => {
@@ -209,7 +214,6 @@ export default function HomePage() {
         throw new Error("Failed to save room");
       }
 
-      // Save room ID to localStorage
       const roomIdsStr = localStorage.getItem(`omnix-room-ids-${username}`);
       const roomIds = roomIdsStr ? JSON.parse(roomIdsStr) : [];
       if (!roomIds.includes(currentRoom.id)) {
@@ -219,7 +223,7 @@ export default function HomePage() {
 
       setMyRooms([...myRooms, { ...currentRoom, shared: true }]);
 
-      const predictionsList = currentRoom.predictions.map((p, i) => `${i + 1}. ${p.question}`).join("\n");
+      const predictionsList = currentRoom.predictions.map((p, i) => `${i + 1}. ${p.question} (🏆 ${p.pointValue} pts)`).join("\n");
       const message = `🔮 Join my Omnix prediction room!\n\n📝 *${currentRoom.name}*\n\n${predictionsList}\n\n⏳ You have 24 hours to predict!\n\n👉 Click to join:\nhttps://omnix-app.vercel.app/room/${currentRoom.id}`;
       
       window.open(`https://wa.me/?text=${encodeURIComponent(message)}`, "_blank");
@@ -233,7 +237,7 @@ export default function HomePage() {
   };
 
   const sendReminder = (room: Room, prediction: Prediction) => {
-    const message = `⏰ REMINDER!\n\n🔮 "${prediction.question}"\n\n⏳ Time left: ${timeLeft[prediction.id] || "Check now!"}\n\n👉 Make your prediction:\nhttps://omnix-app.vercel.app/room/${room.id}`;
+    const message = `⏰ REMINDER!\n\n🔮 "${prediction.question}"\n🏆 ${prediction.pointValue} points to win!\n\n⏳ Time left: ${timeLeft[prediction.id] || "Check now!"}\n\n👉 Make your prediction:\nhttps://omnix-app.vercel.app/room/${room.id}`;
     window.open(`https://wa.me/?text=${encodeURIComponent(message)}`, "_blank");
   };
 
@@ -268,29 +272,77 @@ export default function HomePage() {
   };
 
   const resolvePrediction = async (roomId: string, predictionId: string, answer: string) => {
-    const updatedRooms = myRooms.map(room => {
+    const updatedRooms = await Promise.all(myRooms.map(async (room) => {
       if (room.id === roomId) {
-        const updatedRoom = {
-          ...room,
-          predictions: room.predictions.map(pred => {
-            if (pred.id === predictionId) {
-              return { ...pred, resolved: true, correctAnswer: answer };
-            }
-            return pred;
-          })
-        };
+        const updatedPredictions = room.predictions.map(pred => {
+          if (pred.id === predictionId) {
+            // Find winners
+            const winners = pred.responses
+              ?.filter(r => r.answer.toLowerCase().trim() === answer.toLowerCase().trim())
+              .map(r => r.username) || [];
+            
+            return { ...pred, resolved: true, correctAnswer: answer, winners };
+          }
+          return pred;
+        });
+
+        const updatedRoom = { ...room, predictions: updatedPredictions };
         
         // Update in database
-        fetch("/api/rooms", {
+        await fetch("/api/rooms", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ room: updatedRoom })
         });
+
+        // Award points to winners
+        const resolvedPred = updatedPredictions.find(p => p.id === predictionId);
+        if (resolvedPred?.winners && resolvedPred.winners.length > 0) {
+          for (const winner of resolvedPred.winners) {
+            await fetch("/api/leaderboard", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ 
+                username: winner, 
+                points: resolvedPred.pointValue,
+                correct: 1,
+                total: 0
+              })
+            });
+          }
+        }
+
+        // Update all participants total predictions
+        for (const response of resolvedPred?.responses || []) {
+          if (!resolvedPred?.winners?.includes(response.username)) {
+            await fetch("/api/leaderboard", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ 
+                username: response.username, 
+                points: 0,
+                correct: 0,
+                total: 1
+              })
+            });
+          } else {
+            await fetch("/api/leaderboard", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ 
+                username: response.username, 
+                points: 0,
+                correct: 0,
+                total: 1
+              })
+            });
+          }
+        }
         
         return updatedRoom;
       }
       return room;
-    });
+    }));
     
     setMyRooms(updatedRooms);
 
@@ -300,6 +352,17 @@ export default function HomePage() {
       user.stats.points = (user.stats.points || 0) + 10;
       localStorage.setItem("omnix-user", JSON.stringify(user));
       setStats(user.stats);
+    }
+
+    // Share results on WhatsApp
+    const room = updatedRooms.find(r => r.id === roomId);
+    const pred = room?.predictions.find(p => p.id === predictionId);
+    if (pred && pred.winners && pred.winners.length > 0) {
+      const shareResults = confirm(`🎉 Winners: ${pred.winners.join(", ")}\n\nShare results on WhatsApp?`);
+      if (shareResults) {
+        const message = `🎉 RESULTS ARE IN!\n\n🔮 "${pred.question}"\n\n✅ Correct Answer: ${answer}\n\n🏆 Winners (${pred.pointValue} pts each):\n${pred.winners.map(w => `• ${w}`).join("\n")}\n\n📊 See full leaderboard:\nhttps://omnix-app.vercel.app/leaderboard`;
+        window.open(`https://wa.me/?text=${encodeURIComponent(message)}`, "_blank");
+      }
     }
   };
 
@@ -404,15 +467,27 @@ export default function HomePage() {
               </button>
             </div>
 
-            <div style={{ display: "flex", gap: "10px", marginBottom: "20px" }}>
+            <div style={{ display: "flex", gap: "10px", marginBottom: "15px", flexWrap: "wrap" }}>
               <input
                 type="text"
                 value={newQuestion}
                 onChange={(e) => setNewQuestion(e.target.value)}
                 placeholder="Enter prediction question..."
-                style={{ flex: 1, padding: "14px", borderRadius: "8px", border: "1px solid rgba(255,255,255,0.1)", background: "rgba(255,255,255,0.05)", color: "#FFF", fontSize: "15px" }}
+                style={{ flex: 1, minWidth: "200px", padding: "14px", borderRadius: "8px", border: "1px solid rgba(255,255,255,0.1)", background: "rgba(255,255,255,0.05)", color: "#FFF", fontSize: "15px" }}
                 onKeyPress={(e) => e.key === "Enter" && addPrediction()}
               />
+              <select
+                value={pointValue}
+                onChange={(e) => setPointValue(Number(e.target.value))}
+                style={{ padding: "14px", borderRadius: "8px", border: "1px solid rgba(255,196,0,0.3)", background: "rgba(255,196,0,0.1)", color: "#FFC400", fontSize: "14px", fontWeight: "600", cursor: "pointer" }}
+              >
+                <option value={10}>🏆 10 pts</option>
+                <option value={25}>🏆 25 pts</option>
+                <option value={50}>🏆 50 pts</option>
+                <option value={100}>🏆 100 pts</option>
+                <option value={200}>🏆 200 pts</option>
+                <option value={500}>🏆 500 pts</option>
+              </select>
               <button
                 onClick={addPrediction}
                 style={{ padding: "14px 20px", background: "rgba(0,230,163,0.1)", color: "#00E6A3", border: "1px solid rgba(0,230,163,0.3)", borderRadius: "8px", fontSize: "15px", fontWeight: "600", cursor: "pointer" }}
@@ -432,6 +507,7 @@ export default function HomePage() {
                       <div>
                         <span style={{ color: "#8A2BE2", marginRight: "10px" }}>{i + 1}.</span>
                         <span style={{ color: "#FFF" }}>{pred.question}</span>
+                        <span style={{ color: "#FFC400", fontSize: "12px", marginLeft: "10px", background: "rgba(255,196,0,0.1)", padding: "2px 8px", borderRadius: "10px" }}>🏆 {pred.pointValue} pts</span>
                         <span style={{ color: "rgba(255,255,255,0.4)", fontSize: "12px", marginLeft: "10px" }}>⏳ 24h</span>
                       </div>
                       <button
@@ -500,7 +576,10 @@ export default function HomePage() {
                       
                       return (
                         <div key={pred.id} style={{ background: "rgba(0,0,0,0.3)", padding: "15px", borderRadius: "8px", border: pred.resolved ? "1px solid rgba(0,230,163,0.3)" : "1px solid rgba(255,255,255,0.1)" }}>
-                          <p style={{ color: "#FFF", fontSize: "14px", margin: "0 0 10px 0" }}>{pred.question}</p>
+                          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: "10px" }}>
+                            <p style={{ color: "#FFF", fontSize: "14px", margin: 0, flex: 1 }}>{pred.question}</p>
+                            <span style={{ color: "#FFC400", fontSize: "12px", background: "rgba(255,196,0,0.1)", padding: "2px 8px", borderRadius: "10px", marginLeft: "10px", whiteSpace: "nowrap" }}>🏆 {pred.pointValue || 50} pts</span>
+                          </div>
                           
                           <div style={{ display: "flex", alignItems: "center", gap: "10px", flexWrap: "wrap", marginBottom: "10px" }}>
                             {pred.resolved ? (
@@ -508,16 +587,31 @@ export default function HomePage() {
                                 ✅ Answer: {pred.correctAnswer}
                               </span>
                             ) : (
-                              <>
-                                <span style={{ background: isExpired ? "rgba(255,45,146,0.1)" : "rgba(255,196,0,0.1)", color: isExpired ? "#FF2D92" : "#FFC400", padding: "4px 10px", borderRadius: "20px", fontSize: "12px" }}>
-                                  {isExpired ? "⏰ Expired" : `⏳ ${timeLeft[pred.id] || "24h"}`}
-                                </span>
-                              </>
+                              <span style={{ background: isExpired ? "rgba(255,45,146,0.1)" : "rgba(255,196,0,0.1)", color: isExpired ? "#FF2D92" : "#FFC400", padding: "4px 10px", borderRadius: "20px", fontSize: "12px" }}>
+                                {isExpired ? "⏰ Expired" : `⏳ ${timeLeft[pred.id] || "24h"}`}
+                              </span>
                             )}
                             <span style={{ color: "rgba(255,255,255,0.4)", fontSize: "12px" }}>
                               👥 {totalResponses} response{totalResponses !== 1 ? "s" : ""}
                             </span>
                           </div>
+
+                          {/* Winners display */}
+                          {pred.resolved && pred.winners && pred.winners.length > 0 && (
+                            <div style={{ background: "rgba(0,230,163,0.1)", padding: "10px", borderRadius: "6px", marginBottom: "10px" }}>
+                              <p style={{ color: "#00E6A3", fontSize: "13px", margin: 0 }}>
+                                🏆 Winners ({pred.pointValue} pts each): <strong>{pred.winners.join(", ")}</strong>
+                              </p>
+                            </div>
+                          )}
+
+                          {pred.resolved && (!pred.winners || pred.winners.length === 0) && (
+                            <div style={{ background: "rgba(255,196,0,0.1)", padding: "10px", borderRadius: "6px", marginBottom: "10px" }}>
+                              <p style={{ color: "#FFC400", fontSize: "13px", margin: 0 }}>
+                                😔 No winners this round
+                              </p>
+                            </div>
+                          )}
 
                           {/* Response Stats */}
                           {totalResponses > 0 && (
@@ -541,14 +635,19 @@ export default function HomePage() {
                               {/* Individual responses */}
                               {expandedRoom === pred.id && (
                                 <div style={{ background: "rgba(0,0,0,0.2)", padding: "10px", borderRadius: "6px", marginTop: "8px" }}>
-                                  {pred.responses?.map((r, i) => (
-                                    <div key={i} style={{ display: "flex", justifyContent: "space-between", padding: "5px 0", borderBottom: i < pred.responses.length - 1 ? "1px solid rgba(255,255,255,0.1)" : "none" }}>
-                                      <span style={{ color: "#FFF", fontSize: "12px" }}>{r.username}</span>
-                                      <span style={{ color: pred.resolved && r.answer.toLowerCase().trim() === pred.correctAnswer?.toLowerCase().trim() ? "#00E6A3" : "#8A2BE2", fontSize: "12px", fontWeight: "600" }}>
-                                        {r.answer} {pred.resolved && r.answer.toLowerCase().trim() === pred.correctAnswer?.toLowerCase().trim() && "✅"}
-                                      </span>
-                                    </div>
-                                  ))}
+                                  {pred.responses?.map((r, i) => {
+                                    const isWinner = pred.resolved && pred.winners?.includes(r.username);
+                                    return (
+                                      <div key={i} style={{ display: "flex", justifyContent: "space-between", padding: "5px 0", borderBottom: i < (pred.responses?.length || 0) - 1 ? "1px solid rgba(255,255,255,0.1)" : "none" }}>
+                                        <span style={{ color: isWinner ? "#00E6A3" : "#FFF", fontSize: "12px" }}>
+                                          {r.username} {isWinner && "🏆"}
+                                        </span>
+                                        <span style={{ color: isWinner ? "#00E6A3" : "#8A2BE2", fontSize: "12px", fontWeight: "600" }}>
+                                          {r.answer}
+                                        </span>
+                                      </div>
+                                    );
+                                  })}
                                 </div>
                               )}
                             </div>
@@ -586,7 +685,7 @@ export default function HomePage() {
                   
                   <button
                     onClick={() => {
-                      const predictionsList = room.predictions.map((p, i) => `${i + 1}. ${p.question}`).join("\n");
+                      const predictionsList = room.predictions.map((p, i) => `${i + 1}. ${p.question} (🏆 ${p.pointValue || 50} pts)`).join("\n");
                       const message = `🔮 Join my Omnix prediction room!\n\n📝 *${room.name}*\n\n${predictionsList}\n\n👉 Click to join:\nhttps://omnix-app.vercel.app/room/${room.id}`;
                       window.open(`https://wa.me/?text=${encodeURIComponent(message)}`, "_blank");
                     }}
