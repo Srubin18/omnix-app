@@ -13,6 +13,8 @@ interface Prediction {
   correctAnswer?: string;
   pointValue: number;
   winners?: string[];
+  answerType?: "text" | "yesno" | "multiple";
+  options?: string[];
 }
 
 interface PredictionResponse {
@@ -28,7 +30,71 @@ interface Room {
   predictions: Prediction[];
   createdAt: string;
   shared: boolean;
+  category?: string;
 }
+
+// Prediction Templates
+const TEMPLATES = {
+  fun: [
+    { q: "Who will be the last to arrive?", type: "text" },
+    { q: "Who will drink the most?", type: "text" },
+    { q: "Who will fall asleep first?", type: "text" },
+    { q: "Who will tell the funniest joke?", type: "text" },
+    { q: "Will there be drama tonight?", type: "yesno" },
+    { q: "Who's most likely to lose their phone?", type: "text" },
+    { q: "What time will the party end?", type: "text" },
+    { q: "Who will dance the most?", type: "text" },
+  ],
+  sports: [
+    { q: "Who will win the match?", type: "text" },
+    { q: "What will be the final score?", type: "text" },
+    { q: "Who will score first?", type: "text" },
+    { q: "Will there be a red card?", type: "yesno" },
+    { q: "Total goals over/under 2.5?", type: "multiple", options: ["Over 2.5", "Under 2.5"] },
+    { q: "Man of the match?", type: "text" },
+    { q: "Will there be a penalty?", type: "yesno" },
+    { q: "Halftime score?", type: "text" },
+  ],
+  work: [
+    { q: "Will we hit our deadline?", type: "yesno" },
+    { q: "Who will send the first Monday email?", type: "text" },
+    { q: "How many meetings this week?", type: "text" },
+    { q: "Will the project be approved?", type: "yesno" },
+    { q: "Who will stay latest on Friday?", type: "text" },
+    { q: "Will we get new clients this month?", type: "yesno" },
+    { q: "Team lunch spot this week?", type: "text" },
+    { q: "Who will be employee of the month?", type: "text" },
+  ],
+  entertainment: [
+    { q: "Who will win the award?", type: "text" },
+    { q: "Will there be a plot twist?", type: "yesno" },
+    { q: "Who will be eliminated next?", type: "text" },
+    { q: "Rotten Tomatoes score prediction?", type: "text" },
+    { q: "Will the album go #1?", type: "yesno" },
+    { q: "Who will win the reality show?", type: "text" },
+    { q: "Box office opening weekend ($M)?", type: "text" },
+    { q: "Will there be a sequel announcement?", type: "yesno" },
+  ]
+};
+
+// Live Sports Events (simulated - in production, fetch from API)
+const LIVE_SPORTS = [
+  { id: "1", league: "Premier League", home: "Arsenal", away: "Chelsea", date: "2024-12-14", time: "15:00", icon: "⚽" },
+  { id: "2", league: "Premier League", home: "Man United", away: "Liverpool", date: "2024-12-15", time: "16:30", icon: "⚽" },
+  { id: "3", league: "La Liga", home: "Real Madrid", away: "Barcelona", date: "2024-12-14", time: "20:00", icon: "⚽" },
+  { id: "4", league: "NBA", home: "Lakers", away: "Warriors", date: "2024-12-13", time: "22:00", icon: "🏀" },
+  { id: "5", league: "NBA", home: "Celtics", away: "Heat", date: "2024-12-14", time: "19:30", icon: "🏀" },
+  { id: "6", league: "UFC 310", home: "Pantoja", away: "Asakura", date: "2024-12-14", time: "22:00", icon: "🥊" },
+  { id: "7", league: "NFL", home: "Cowboys", away: "Eagles", date: "2024-12-15", time: "20:20", icon: "🏈" },
+  { id: "8", league: "Champions League", home: "Bayern", away: "PSG", date: "2024-12-17", time: "21:00", icon: "⚽" },
+];
+
+const CATEGORIES = [
+  { id: "sports", name: "Sports", icon: "🏆", color: "#00AEEF" },
+  { id: "fun", name: "Fun & Social", icon: "🎉", color: "#FF2D92" },
+  { id: "work", name: "Work", icon: "💼", color: "#FFC400" },
+  { id: "entertainment", name: "Entertainment", icon: "🎬", color: "#8A2BE2" },
+];
 
 export default function HomePage() {
   const router = useRouter();
@@ -39,9 +105,17 @@ export default function HomePage() {
   const [roomName, setRoomName] = useState("");
   const [currentRoom, setCurrentRoom] = useState<Room | null>(null);
   const [myRooms, setMyRooms] = useState<Room[]>([]);
+  const [selectedCategory, setSelectedCategory] = useState<string>("fun");
   
   const [newQuestion, setNewQuestion] = useState("");
   const [pointValue, setPointValue] = useState(50);
+  const [answerType, setAnswerType] = useState<"text" | "yesno" | "multiple">("text");
+  const [multipleOptions, setMultipleOptions] = useState<string[]>(["", ""]);
+  const [deadlineHours, setDeadlineHours] = useState(24);
+  
+  const [showTemplates, setShowTemplates] = useState(false);
+  const [showLiveSports, setShowLiveSports] = useState(false);
+  
   const [aiLoading, setAiLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [timeLeft, setTimeLeft] = useState<{[key: string]: string}>({});
@@ -138,7 +212,8 @@ export default function HomePage() {
       creator: username,
       predictions: [],
       createdAt: new Date().toISOString(),
-      shared: false
+      shared: false,
+      category: selectedCategory
     };
 
     setCurrentRoom(newRoom);
@@ -161,17 +236,27 @@ export default function HomePage() {
       return;
     }
 
+    if (answerType === "multiple") {
+      const validOptions = multipleOptions.filter(o => o.trim());
+      if (validOptions.length < 2) {
+        alert("Please add at least 2 options for multiple choice");
+        return;
+      }
+    }
+
     if (!currentRoom) return;
 
     const prediction: Prediction = {
       id: Math.random().toString(36).substring(2, 10),
       question: newQuestion,
       createdAt: new Date().toISOString(),
-      deadline: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
+      deadline: new Date(Date.now() + deadlineHours * 60 * 60 * 1000).toISOString(),
       responses: [],
       resolved: false,
       pointValue: pointValue,
-      winners: []
+      winners: [],
+      answerType: answerType,
+      options: answerType === "multiple" ? multipleOptions.filter(o => o.trim()) : undefined
     };
 
     const updatedRoom = {
@@ -181,6 +266,50 @@ export default function HomePage() {
 
     setCurrentRoom(updatedRoom);
     setNewQuestion("");
+    setAnswerType("text");
+    setMultipleOptions(["", ""]);
+  };
+
+  const addFromTemplate = (template: { q: string; type: string; options?: string[] }) => {
+    setNewQuestion(template.q);
+    setAnswerType(template.type as "text" | "yesno" | "multiple");
+    if (template.options) {
+      setMultipleOptions(template.options);
+    }
+    setShowTemplates(false);
+  };
+
+  const addFromSportsEvent = (event: typeof LIVE_SPORTS[0]) => {
+    const roomName = `${event.home} vs ${event.away}`;
+    setRoomName(roomName);
+    setSelectedCategory("sports");
+    setShowLiveSports(false);
+    
+    // Auto-create room with event
+    const roomId = Math.random().toString(36).substring(2, 10);
+    const newRoom: Room = {
+      id: roomId,
+      name: roomName,
+      creator: username,
+      predictions: [
+        {
+          id: Math.random().toString(36).substring(2, 10),
+          question: `Who will win: ${event.home} vs ${event.away}?`,
+          createdAt: new Date().toISOString(),
+          deadline: new Date(`${event.date}T${event.time}`).toISOString(),
+          responses: [],
+          resolved: false,
+          pointValue: 100,
+          winners: [],
+          answerType: "multiple",
+          options: [event.home, event.away, "Draw"]
+        }
+      ],
+      createdAt: new Date().toISOString(),
+      shared: false,
+      category: "sports"
+    };
+    setCurrentRoom(newRoom);
   };
 
   const removePrediction = (predId: string) => {
@@ -223,10 +352,94 @@ export default function HomePage() {
 
       setMyRooms([...myRooms, { ...currentRoom, shared: true }]);
 
+      const categoryIcon = CATEGORIES.find(c => c.id === currentRoom.category)?.icon || "🔮";
       const predictionsList = currentRoom.predictions.map((p, i) => `${i + 1}. ${p.question} (🏆 ${p.pointValue} pts)`).join("\n");
-      const message = `🔮 Join my Omnix prediction room!\n\n📝 *${currentRoom.name}*\n\n${predictionsList}\n\n⏳ You have 24 hours to predict!\n\n👉 Click to join:\nhttps://omnix-app.vercel.app/room/${currentRoom.id}`;
+      const userStr = localStorage.getItem("omnix-user");
+      const user = userStr ? JSON.parse(userStr) : { stats: { level: 1 } };
+      
+      const message = `${categoryIcon} *${currentRoom.name}*\n\nby ${username} (Level ${user.stats?.level || 1})\n\n${predictionsList}\n\n🎁 +10 bonus points for joining!\n\n👉 https://omnix-app.vercel.app/room/${currentRoom.id}`;
       
       window.open(`https://wa.me/?text=${encodeURIComponent(message)}`, "_blank");
+      
+      setCurrentRoom(null);
+    } catch (error) {
+      alert("Failed to save room. Please try again.");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const shareOnTelegram = async () => {
+    if (!currentRoom) return;
+    if (currentRoom.predictions.length === 0) {
+      alert("Please add at least one prediction before sharing!");
+      return;
+    }
+
+    setSaving(true);
+
+    try {
+      const response = await fetch("/api/rooms", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ room: currentRoom })
+      });
+
+      if (!response.ok) throw new Error("Failed to save room");
+
+      const roomIdsStr = localStorage.getItem(`omnix-room-ids-${username}`);
+      const roomIds = roomIdsStr ? JSON.parse(roomIdsStr) : [];
+      if (!roomIds.includes(currentRoom.id)) {
+        roomIds.push(currentRoom.id);
+        localStorage.setItem(`omnix-room-ids-${username}`, JSON.stringify(roomIds));
+      }
+
+      setMyRooms([...myRooms, { ...currentRoom, shared: true }]);
+
+      const categoryIcon = CATEGORIES.find(c => c.id === currentRoom.category)?.icon || "🔮";
+      const predictionsList = currentRoom.predictions.map((p, i) => `${i + 1}. ${p.question} (🏆 ${p.pointValue} pts)`).join("\n");
+      
+      const message = `${categoryIcon} ${currentRoom.name}\n\n${predictionsList}\n\n🎁 +10 bonus points for joining!\n\n👉 https://omnix-app.vercel.app/room/${currentRoom.id}`;
+      
+      window.open(`https://t.me/share/url?url=${encodeURIComponent(`https://omnix-app.vercel.app/room/${currentRoom.id}`)}&text=${encodeURIComponent(message)}`, "_blank");
+      
+      setCurrentRoom(null);
+    } catch (error) {
+      alert("Failed to save room. Please try again.");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const copyLink = async () => {
+    if (!currentRoom) return;
+    if (currentRoom.predictions.length === 0) {
+      alert("Please add at least one prediction before sharing!");
+      return;
+    }
+
+    setSaving(true);
+
+    try {
+      const response = await fetch("/api/rooms", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ room: currentRoom })
+      });
+
+      if (!response.ok) throw new Error("Failed to save room");
+
+      const roomIdsStr = localStorage.getItem(`omnix-room-ids-${username}`);
+      const roomIds = roomIdsStr ? JSON.parse(roomIdsStr) : [];
+      if (!roomIds.includes(currentRoom.id)) {
+        roomIds.push(currentRoom.id);
+        localStorage.setItem(`omnix-room-ids-${username}`, JSON.stringify(roomIds));
+      }
+
+      setMyRooms([...myRooms, { ...currentRoom, shared: true }]);
+
+      await navigator.clipboard.writeText(`https://omnix-app.vercel.app/room/${currentRoom.id}`);
+      alert("Link copied to clipboard! 📋");
       
       setCurrentRoom(null);
     } catch (error) {
@@ -414,6 +627,41 @@ export default function HomePage() {
             <p style={{ color: "rgba(255,255,255,0.5)", fontSize: "14px", marginBottom: "20px" }}>
               Earn <span style={{ color: "#00E6A3" }}>+20 points</span> for creating a room
             </p>
+
+            {/* Category Selection */}
+            <div style={{ marginBottom: "20px" }}>
+              <p style={{ color: "rgba(255,255,255,0.6)", fontSize: "13px", marginBottom: "10px" }}>Select Category:</p>
+              <div style={{ display: "flex", gap: "10px", flexWrap: "wrap" }}>
+                {CATEGORIES.map(cat => (
+                  <button
+                    key={cat.id}
+                    onClick={() => setSelectedCategory(cat.id)}
+                    style={{ 
+                      padding: "10px 16px", 
+                      background: selectedCategory === cat.id ? `${cat.color}20` : "rgba(255,255,255,0.05)", 
+                      color: selectedCategory === cat.id ? cat.color : "rgba(255,255,255,0.6)", 
+                      border: selectedCategory === cat.id ? `2px solid ${cat.color}` : "1px solid rgba(255,255,255,0.1)", 
+                      borderRadius: "8px", 
+                      fontSize: "14px", 
+                      cursor: "pointer",
+                      display: "flex",
+                      alignItems: "center",
+                      gap: "6px"
+                    }}
+                  >
+                    {cat.icon} {cat.name}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Live Sports Button */}
+            <button
+              onClick={() => setShowLiveSports(true)}
+              style={{ width: "100%", padding: "14px", background: "linear-gradient(135deg, rgba(0,174,239,0.1), rgba(0,230,163,0.1))", color: "#00AEEF", border: "1px solid rgba(0,174,239,0.3)", borderRadius: "8px", fontSize: "14px", fontWeight: "600", cursor: "pointer", marginBottom: "15px", display: "flex", alignItems: "center", justifyContent: "center", gap: "8px" }}
+            >
+              ⚽ Browse Live Sports Events
+            </button>
             
             <div style={{ display: "flex", gap: "10px" }}>
               <input
@@ -435,8 +683,11 @@ export default function HomePage() {
           <div style={{ background: "#121212", padding: "30px", borderRadius: "16px", marginBottom: "20px", border: "1px solid rgba(0,230,163,0.3)" }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "20px" }}>
               <div>
-                <h2 style={{ color: "#FFF", fontSize: "20px", margin: 0 }}>📝 {currentRoom.name}</h2>
-                <p style={{ color: "rgba(255,255,255,0.5)", fontSize: "13px", margin: "5px 0 0 0" }}>Add your prediction questions below</p>
+                <div style={{ display: "flex", alignItems: "center", gap: "10px", marginBottom: "5px" }}>
+                  <span style={{ fontSize: "20px" }}>{CATEGORIES.find(c => c.id === currentRoom.category)?.icon || "🔮"}</span>
+                  <h2 style={{ color: "#FFF", fontSize: "20px", margin: 0 }}>{currentRoom.name}</h2>
+                </div>
+                <p style={{ color: "rgba(255,255,255,0.5)", fontSize: "13px", margin: 0 }}>Add your prediction questions below</p>
               </div>
               <button
                 onClick={() => setCurrentRoom(null)}
@@ -446,16 +697,84 @@ export default function HomePage() {
               </button>
             </div>
 
+            {/* Templates Button */}
+            <button
+              onClick={() => setShowTemplates(true)}
+              style={{ width: "100%", padding: "12px", background: "rgba(255,196,0,0.1)", color: "#FFC400", border: "1px solid rgba(255,196,0,0.3)", borderRadius: "8px", fontSize: "14px", cursor: "pointer", marginBottom: "15px", display: "flex", alignItems: "center", justifyContent: "center", gap: "8px" }}
+            >
+              💡 Use a Template Question
+            </button>
+
             {/* Question Input */}
             <div style={{ marginBottom: "20px" }}>
               <input
                 type="text"
                 value={newQuestion}
                 onChange={(e) => setNewQuestion(e.target.value)}
-                placeholder="Enter prediction question (e.g., 'Who will win the match?')"
+                placeholder="Enter prediction question..."
                 style={{ width: "100%", padding: "14px", borderRadius: "8px", border: "1px solid rgba(255,255,255,0.1)", background: "rgba(255,255,255,0.05)", color: "#FFF", fontSize: "15px", marginBottom: "15px", boxSizing: "border-box" }}
-                onKeyPress={(e) => e.key === "Enter" && addPrediction()}
               />
+              
+              {/* Answer Type Selection */}
+              <div style={{ marginBottom: "15px" }}>
+                <p style={{ color: "rgba(255,255,255,0.6)", fontSize: "13px", marginBottom: "8px" }}>Answer Type:</p>
+                <div style={{ display: "flex", gap: "10px", flexWrap: "wrap" }}>
+                  <button
+                    onClick={() => setAnswerType("text")}
+                    style={{ padding: "8px 14px", background: answerType === "text" ? "rgba(138,43,226,0.2)" : "rgba(255,255,255,0.05)", color: answerType === "text" ? "#8A2BE2" : "rgba(255,255,255,0.6)", border: answerType === "text" ? "2px solid #8A2BE2" : "1px solid rgba(255,255,255,0.1)", borderRadius: "6px", fontSize: "13px", cursor: "pointer" }}
+                  >
+                    ✏️ Text
+                  </button>
+                  <button
+                    onClick={() => setAnswerType("yesno")}
+                    style={{ padding: "8px 14px", background: answerType === "yesno" ? "rgba(0,230,163,0.2)" : "rgba(255,255,255,0.05)", color: answerType === "yesno" ? "#00E6A3" : "rgba(255,255,255,0.6)", border: answerType === "yesno" ? "2px solid #00E6A3" : "1px solid rgba(255,255,255,0.1)", borderRadius: "6px", fontSize: "13px", cursor: "pointer" }}
+                  >
+                    👍👎 Yes/No
+                  </button>
+                  <button
+                    onClick={() => setAnswerType("multiple")}
+                    style={{ padding: "8px 14px", background: answerType === "multiple" ? "rgba(0,174,239,0.2)" : "rgba(255,255,255,0.05)", color: answerType === "multiple" ? "#00AEEF" : "rgba(255,255,255,0.6)", border: answerType === "multiple" ? "2px solid #00AEEF" : "1px solid rgba(255,255,255,0.1)", borderRadius: "6px", fontSize: "13px", cursor: "pointer" }}
+                  >
+                    📋 Multiple Choice
+                  </button>
+                </div>
+              </div>
+
+              {/* Multiple Choice Options */}
+              {answerType === "multiple" && (
+                <div style={{ marginBottom: "15px", padding: "15px", background: "rgba(0,174,239,0.1)", borderRadius: "8px" }}>
+                  <p style={{ color: "#00AEEF", fontSize: "13px", marginBottom: "10px" }}>Options:</p>
+                  {multipleOptions.map((opt, i) => (
+                    <div key={i} style={{ display: "flex", gap: "10px", marginBottom: "8px" }}>
+                      <input
+                        type="text"
+                        value={opt}
+                        onChange={(e) => {
+                          const newOpts = [...multipleOptions];
+                          newOpts[i] = e.target.value;
+                          setMultipleOptions(newOpts);
+                        }}
+                        placeholder={`Option ${i + 1}`}
+                        style={{ flex: 1, padding: "10px", borderRadius: "6px", border: "1px solid rgba(255,255,255,0.1)", background: "rgba(255,255,255,0.05)", color: "#FFF", fontSize: "14px" }}
+                      />
+                      {multipleOptions.length > 2 && (
+                        <button
+                          onClick={() => setMultipleOptions(multipleOptions.filter((_, idx) => idx !== i))}
+                          style={{ padding: "10px", background: "rgba(255,45,146,0.1)", color: "#FF2D92", border: "none", borderRadius: "6px", cursor: "pointer" }}
+                        >
+                          ✕
+                        </button>
+                      )}
+                    </div>
+                  ))}
+                  <button
+                    onClick={() => setMultipleOptions([...multipleOptions, ""])}
+                    style={{ padding: "8px 12px", background: "transparent", color: "#00AEEF", border: "1px dashed rgba(0,174,239,0.5)", borderRadius: "6px", fontSize: "13px", cursor: "pointer", width: "100%" }}
+                  >
+                    + Add Option
+                  </button>
+                </div>
+              )}
               
               {/* Settings Row */}
               <div style={{ display: "flex", gap: "15px", alignItems: "center", flexWrap: "wrap", background: "rgba(255,255,255,0.03)", padding: "15px", borderRadius: "8px" }}>
@@ -477,7 +796,19 @@ export default function HomePage() {
                 
                 <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
                   <span style={{ color: "#00AEEF", fontSize: "14px" }}>⏳ Deadline:</span>
-                  <span style={{ color: "#00AEEF", fontSize: "15px", fontWeight: "600" }}>24 hours</span>
+                  <select
+                    value={deadlineHours}
+                    onChange={(e) => setDeadlineHours(Number(e.target.value))}
+                    style={{ padding: "10px 15px", borderRadius: "8px", border: "2px solid rgba(0,174,239,0.5)", background: "rgba(0,174,239,0.15)", color: "#00AEEF", fontSize: "15px", fontWeight: "700", cursor: "pointer" }}
+                  >
+                    <option value={1}>1 hour</option>
+                    <option value={6}>6 hours</option>
+                    <option value={12}>12 hours</option>
+                    <option value={24}>24 hours</option>
+                    <option value={48}>48 hours</option>
+                    <option value={72}>3 days</option>
+                    <option value={168}>1 week</option>
+                  </select>
                 </div>
                 
                 <button
@@ -503,9 +834,12 @@ export default function HomePage() {
                           <span style={{ color: "#8A2BE2", fontWeight: "700" }}>{i + 1}.</span>
                           <span style={{ color: "#FFF", fontSize: "15px" }}>{pred.question}</span>
                         </div>
-                        <div style={{ display: "flex", gap: "10px" }}>
+                        <div style={{ display: "flex", gap: "10px", flexWrap: "wrap" }}>
                           <span style={{ color: "#FFC400", fontSize: "12px", background: "rgba(255,196,0,0.1)", padding: "3px 10px", borderRadius: "12px" }}>🏆 {pred.pointValue} pts</span>
-                          <span style={{ color: "#00AEEF", fontSize: "12px", background: "rgba(0,174,239,0.1)", padding: "3px 10px", borderRadius: "12px" }}>⏳ 24h</span>
+                          <span style={{ color: "#00AEEF", fontSize: "12px", background: "rgba(0,174,239,0.1)", padding: "3px 10px", borderRadius: "12px" }}>⏳ {deadlineHours}h</span>
+                          <span style={{ color: "#8A2BE2", fontSize: "12px", background: "rgba(138,43,226,0.1)", padding: "3px 10px", borderRadius: "12px" }}>
+                            {pred.answerType === "yesno" ? "👍👎 Yes/No" : pred.answerType === "multiple" ? "📋 Multiple" : "✏️ Text"}
+                          </span>
                         </div>
                       </div>
                       <button
@@ -520,29 +854,128 @@ export default function HomePage() {
               </div>
             )}
 
-            {/* Share Button */}
-            <button
-              onClick={shareOnWhatsApp}
-              disabled={currentRoom.predictions.length === 0 || saving}
-              style={{
-                width: "100%",
-                padding: "18px",
-                background: currentRoom.predictions.length > 0 ? "linear-gradient(135deg, #25D366, #128C7E)" : "rgba(255,255,255,0.1)",
-                color: currentRoom.predictions.length > 0 ? "#FFF" : "rgba(255,255,255,0.3)",
-                border: "none",
-                borderRadius: "10px",
-                fontSize: "16px",
-                fontWeight: "600",
-                cursor: currentRoom.predictions.length > 0 ? "pointer" : "not-allowed",
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                gap: "10px"
-              }}
-            >
-              <span>📱</span>
-              {saving ? "Saving..." : currentRoom.predictions.length > 0 ? "Share on WhatsApp" : "Add questions to share"}
-            </button>
+            {/* Share Buttons */}
+            <div style={{ display: "flex", gap: "10px", flexWrap: "wrap" }}>
+              <button
+                onClick={shareOnWhatsApp}
+                disabled={currentRoom.predictions.length === 0 || saving}
+                style={{
+                  flex: 1,
+                  minWidth: "140px",
+                  padding: "16px",
+                  background: currentRoom.predictions.length > 0 ? "rgba(37,211,102,0.1)" : "rgba(255,255,255,0.05)",
+                  color: currentRoom.predictions.length > 0 ? "#25D366" : "rgba(255,255,255,0.3)",
+                  border: currentRoom.predictions.length > 0 ? "1px solid rgba(37,211,102,0.3)" : "1px solid rgba(255,255,255,0.1)",
+                  borderRadius: "10px",
+                  fontSize: "15px",
+                  fontWeight: "600",
+                  cursor: currentRoom.predictions.length > 0 ? "pointer" : "not-allowed",
+                }}
+              >
+                📱 WhatsApp
+              </button>
+              <button
+                onClick={shareOnTelegram}
+                disabled={currentRoom.predictions.length === 0 || saving}
+                style={{
+                  flex: 1,
+                  minWidth: "140px",
+                  padding: "16px",
+                  background: currentRoom.predictions.length > 0 ? "rgba(0,136,204,0.1)" : "rgba(255,255,255,0.05)",
+                  color: currentRoom.predictions.length > 0 ? "#0088CC" : "rgba(255,255,255,0.3)",
+                  border: currentRoom.predictions.length > 0 ? "1px solid rgba(0,136,204,0.3)" : "1px solid rgba(255,255,255,0.1)",
+                  borderRadius: "10px",
+                  fontSize: "15px",
+                  fontWeight: "600",
+                  cursor: currentRoom.predictions.length > 0 ? "pointer" : "not-allowed",
+                }}
+              >
+                ✈️ Telegram
+              </button>
+              <button
+                onClick={copyLink}
+                disabled={currentRoom.predictions.length === 0 || saving}
+                style={{
+                  flex: 1,
+                  minWidth: "140px",
+                  padding: "16px",
+                  background: currentRoom.predictions.length > 0 ? "rgba(138,43,226,0.1)" : "rgba(255,255,255,0.05)",
+                  color: currentRoom.predictions.length > 0 ? "#8A2BE2" : "rgba(255,255,255,0.3)",
+                  border: currentRoom.predictions.length > 0 ? "1px solid rgba(138,43,226,0.3)" : "1px solid rgba(255,255,255,0.1)",
+                  borderRadius: "10px",
+                  fontSize: "15px",
+                  fontWeight: "600",
+                  cursor: currentRoom.predictions.length > 0 ? "pointer" : "not-allowed",
+                }}
+              >
+                🔗 Copy Link
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* Templates Modal */}
+        {showTemplates && (
+          <div style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, background: "rgba(0,0,0,0.9)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000, padding: "20px" }}>
+            <div style={{ background: "#121212", padding: "25px", borderRadius: "16px", maxWidth: "500px", width: "100%", maxHeight: "80vh", overflow: "auto", border: "1px solid rgba(138,43,226,0.3)" }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "20px" }}>
+                <h3 style={{ color: "#FFF", fontSize: "18px", margin: 0 }}>💡 Template Questions</h3>
+                <button onClick={() => setShowTemplates(false)} style={{ background: "transparent", border: "none", color: "rgba(255,255,255,0.5)", fontSize: "20px", cursor: "pointer" }}>✕</button>
+              </div>
+              
+              <p style={{ color: "rgba(255,255,255,0.5)", fontSize: "13px", marginBottom: "15px" }}>
+                {CATEGORIES.find(c => c.id === selectedCategory)?.icon} {CATEGORIES.find(c => c.id === selectedCategory)?.name} templates:
+              </p>
+              
+              <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
+                {TEMPLATES[selectedCategory as keyof typeof TEMPLATES]?.map((template, i) => (
+                  <button
+                    key={i}
+                    onClick={() => addFromTemplate(template)}
+                    style={{ padding: "12px 15px", background: "rgba(255,255,255,0.05)", color: "#FFF", border: "1px solid rgba(255,255,255,0.1)", borderRadius: "8px", fontSize: "14px", cursor: "pointer", textAlign: "left", display: "flex", justifyContent: "space-between", alignItems: "center" }}
+                  >
+                    <span>{template.q}</span>
+                    <span style={{ color: "rgba(255,255,255,0.4)", fontSize: "11px" }}>
+                      {template.type === "yesno" ? "👍👎" : template.type === "multiple" ? "📋" : "✏️"}
+                    </span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Live Sports Modal */}
+        {showLiveSports && (
+          <div style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, background: "rgba(0,0,0,0.9)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000, padding: "20px" }}>
+            <div style={{ background: "#121212", padding: "25px", borderRadius: "16px", maxWidth: "500px", width: "100%", maxHeight: "80vh", overflow: "auto", border: "1px solid rgba(0,174,239,0.3)" }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "20px" }}>
+                <h3 style={{ color: "#FFF", fontSize: "18px", margin: 0 }}>⚽ Live Sports Events</h3>
+                <button onClick={() => setShowLiveSports(false)} style={{ background: "transparent", border: "none", color: "rgba(255,255,255,0.5)", fontSize: "20px", cursor: "pointer" }}>✕</button>
+              </div>
+              
+              <p style={{ color: "rgba(255,255,255,0.5)", fontSize: "13px", marginBottom: "15px" }}>
+                Click an event to create a prediction room:
+              </p>
+              
+              <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
+                {LIVE_SPORTS.map((event) => (
+                  <button
+                    key={event.id}
+                    onClick={() => addFromSportsEvent(event)}
+                    style={{ padding: "15px", background: "rgba(255,255,255,0.05)", color: "#FFF", border: "1px solid rgba(255,255,255,0.1)", borderRadius: "10px", cursor: "pointer", textAlign: "left" }}
+                  >
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "8px" }}>
+                      <span style={{ color: "#00AEEF", fontSize: "12px", fontWeight: "600" }}>{event.icon} {event.league}</span>
+                      <span style={{ color: "rgba(255,255,255,0.4)", fontSize: "12px" }}>{event.date} • {event.time}</span>
+                    </div>
+                    <p style={{ color: "#FFF", fontSize: "16px", margin: 0, fontWeight: "600" }}>
+                      {event.home} vs {event.away}
+                    </p>
+                  </button>
+                ))}
+              </div>
+            </div>
           </div>
         )}
 
@@ -563,7 +996,10 @@ export default function HomePage() {
               {myRooms.map(room => (
                 <div key={room.id} style={{ background: "rgba(255,255,255,0.03)", padding: "20px", borderRadius: "12px", border: "1px solid rgba(138,43,226,0.2)" }}>
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "15px" }}>
-                    <h3 style={{ color: "#FFF", fontSize: "16px", margin: 0 }}>{room.name}</h3>
+                    <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+                      <span style={{ fontSize: "18px" }}>{CATEGORIES.find(c => c.id === room.category)?.icon || "🔮"}</span>
+                      <h3 style={{ color: "#FFF", fontSize: "16px", margin: 0 }}>{room.name}</h3>
+                    </div>
                     <span style={{ color: "rgba(255,255,255,0.4)", fontSize: "12px" }}>ID: {room.id}</span>
                   </div>
                   
@@ -680,8 +1116,9 @@ export default function HomePage() {
                   
                   <button
                     onClick={() => {
+                      const categoryIcon = CATEGORIES.find(c => c.id === room.category)?.icon || "🔮";
                       const predictionsList = room.predictions.map((p, i) => `${i + 1}. ${p.question} (🏆 ${p.pointValue || 50} pts)`).join("\n");
-                      const message = `🔮 Join my Omnix prediction room!\n\n📝 *${room.name}*\n\n${predictionsList}\n\n👉 Click to join:\nhttps://omnix-app.vercel.app/room/${room.id}`;
+                      const message = `${categoryIcon} *${room.name}*\n\n${predictionsList}\n\n🎁 +10 bonus points for joining!\n\n👉 https://omnix-app.vercel.app/room/${room.id}`;
                       window.open(`https://wa.me/?text=${encodeURIComponent(message)}`, "_blank");
                     }}
                     style={{ marginTop: "15px", padding: "10px 15px", background: "rgba(37,211,102,0.1)", color: "#25D366", border: "1px solid rgba(37,211,102,0.3)", borderRadius: "6px", fontSize: "13px", cursor: "pointer", width: "100%" }}
