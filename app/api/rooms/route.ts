@@ -1,9 +1,11 @@
 import { Redis } from "@upstash/redis";
 import { NextResponse } from "next/server";
 
-const redis = Redis.fromEnv();
+const redis = new Redis({
+  url: process.env.UPSTASH_REDIS_REST_URL!,
+  token: process.env.UPSTASH_REDIS_REST_TOKEN!,
+});
 
-// GET - Fetch a room by ID
 export async function GET(request: Request) {
   try {
     const { searchParams } = new URL(request.url);
@@ -26,7 +28,6 @@ export async function GET(request: Request) {
   }
 }
 
-// POST - Create or update a room
 export async function POST(request: Request) {
   try {
     const body = await request.json();
@@ -36,7 +37,6 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Room data required" }, { status: 400 });
     }
 
-    // Save room with 7 day expiry
     await redis.set(`room:${room.id}`, JSON.stringify(room), { ex: 604800 });
 
     return NextResponse.json({ success: true, roomId: room.id });
