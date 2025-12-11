@@ -18,10 +18,11 @@ export default function HomePage() {
       return;
     }
 
-    // Simulate room creation
+    // Generate a simple mock room ID
     const roomId = Math.random().toString(36).substring(2, 8);
 
-    const whatsappMsg = ⁠ Join my Omnix prediction room: *${roomName}*\n\nClick to join:\nhttps://omnix-app.vercel.app/room/${roomId} ⁠;
+    // WhatsApp message
+    const whatsappMsg = `Join my Omnix prediction room: *${roomName}*\n\nClick to join:\nhttps://omnix-app.vercel.app/room/${roomId}`;
 
     const url = "https://wa.me/?text=" + encodeURIComponent(whatsappMsg);
 
