@@ -13,10 +13,9 @@ export default function LoginPage() {
     username: "",
   });
 
-  function handleChange(e: React.ChangeEvent<HTMLInputElement>) {
-    setForm({ ...form, [e.target.name]: e.target.value });
-  }
-
+  function handleChange(e: React.ChangeEvent<HTMLInputElement>): void {
+  setForm({ ...form, [e.target.name]: e.target.value });
+}
   function enterApp() {
     // No friction login
     localStorage.setItem("omnix-user", JSON.stringify(form));
