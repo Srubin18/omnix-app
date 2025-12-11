@@ -9,10 +9,8 @@ export default function LoginPage() {
   const [isLoading, setIsLoading] = useState(false);
 
   useEffect(() => {
-    // Check if already logged in
     const userStr = localStorage.getItem("omnix-user");
     if (userStr) {
-      // Check for pending room
       const pendingRoom = localStorage.getItem("omnix-pending-room");
       if (pendingRoom) {
         localStorage.removeItem("omnix-pending-room");
@@ -39,7 +37,6 @@ export default function LoginPage() {
 
     localStorage.setItem("omnix-user", JSON.stringify(user));
 
-    // Check for pending room
     const pendingRoom = localStorage.getItem("omnix-pending-room");
     if (pendingRoom) {
       localStorage.removeItem("omnix-pending-room");
@@ -60,17 +57,38 @@ export default function LoginPage() {
           type="text"
           value={username}
           onChange={(e) => setUsername(e.target.value)}
-          placeholder="Enter your username"
-          style={{ width: "100%", padding: "15px", borderRadius: "8px", border: "1px solid rgba(255,255,255,0.1)", background: "rgba(255,255,255,0.05)", color: "#FFF", fontSize: "16px", marginBottom: "15px", boxSizing: "border-box" }}
+          placeholder="👤 Enter your name (e.g., John)"
+          style={{ 
+            width: "100%", 
+            padding: "15px", 
+            borderRadius: "8px", 
+            border: "1px solid rgba(255,255,255,0.1)", 
+            background: "rgba(255,255,255,0.05)", 
+            color: "#FFF", 
+            fontSize: "16px", 
+            marginBottom: "15px", 
+            boxSizing: "border-box",
+            textAlign: "center"
+          }}
           onKeyPress={(e) => e.key === "Enter" && handleLogin()}
         />
         
         <button
           onClick={handleLogin}
           disabled={isLoading}
-          style={{ width: "100%", padding: "15px", background: "linear-gradient(135deg, #8A2BE2, #00AEEF)", color: "#FFF", border: "none", borderRadius: "8px", fontSize: "16px", fontWeight: "600", cursor: "pointer" }}
+          style={{ 
+            width: "100%", 
+            padding: "15px", 
+            background: "linear-gradient(135deg, #8A2BE2, #00AEEF)", 
+            color: "#FFF", 
+            border: "none", 
+            borderRadius: "8px", 
+            fontSize: "16px", 
+            fontWeight: "600", 
+            cursor: "pointer" 
+          }}
         >
-          {isLoading ? "Loading..." : "Join Omnix"}
+          {isLoading ? "Loading..." : "Join Omnix 🚀"}
         </button>
       </div>
     </div>
