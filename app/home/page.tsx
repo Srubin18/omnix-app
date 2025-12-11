@@ -1,31 +1,35 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useState } from "react";
 
 export default function HomePage() {
   const [roomName, setRoomName] = useState("");
 
-  // Load stored user
-  const user =
-    typeof window !== "undefined"
-      ? JSON.parse(localStorage.getItem("omnix-user")) || {}
-      : {};
+  // Load stored user safely
+  let user = {};
+  if (typeof window !== "undefined") {
+    try {
+      user = JSON.parse(localStorage.getItem("omnix-user") || "{}");
+    } catch {
+      user = {};
+    }
+  }
 
-  // Create room handler (temporary)
   const handleCreateRoom = () => {
     if (!roomName.trim()) {
       alert("Please enter a room name.");
       return;
     }
 
-    // Simulate room creation
+    // Generate a simple mock room ID
     const roomId = Math.random().toString(36).substring(2, 8);
 
     const whatsappMsg = `Join my Omnix prediction room: *${roomName}*\n\nClick to join:\nhttps://omnix-app.vercel.app/room/${roomId}`;
 
-    const url =
-      "https://wa.me/?text=" + encodeURIComponent(whatsappMsg);
+    // Build WhatsApp link
+    const url = "https://wa.me/?text=" + encodeURIComponent(whatsappMsg);
 
+    // Redirect user to WhatsApp
     window.location.href = url;
   };
 
@@ -40,7 +44,7 @@ export default function HomePage() {
       <h1 style={{ fontSize: "32px", fontWeight: 700 }}>Welcome to Omnix 👋</h1>
 
       <p style={{ opacity: 0.7, marginBottom: "30px" }}>
-        Hello {user.username || "user"} — you're now inside the app.
+        Hello {user?.username || "user"} — you're now inside the app.
       </p>
 
       {/* Room creation UI */}
