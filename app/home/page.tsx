@@ -3,42 +3,30 @@
 import React, { useState, useEffect } from "react";
 
 export default function HomePage() {
+  const [roomName, setRoomName] = useState("");
+
   // Load stored user
   const user =
     typeof window !== "undefined"
       ? JSON.parse(localStorage.getItem("omnix-user")) || {}
       : {};
 
-  // Room states
-  const [rooms, setRooms] = useState([]);
-  const [roomName, setRoomName] = useState("");
+  // Create room handler (temporary)
+  const handleCreateRoom = () => {
+    if (!roomName.trim()) {
+      alert("Please enter a room name.");
+      return;
+    }
 
-  // Load stored rooms on page load
-  useEffect(() => {
-    const saved = JSON.parse(localStorage.getItem("omnix-rooms") || "[]");
-    setRooms(saved);
-  }, []);
+    // Simulate room creation
+    const roomId = Math.random().toString(36).substring(2, 8);
 
-  const saveRooms = (newRooms) => {
-    setRooms(newRooms);
-    localStorage.setItem("omnix-rooms", JSON.stringify(newRooms));
-  };
+    const whatsappMsg = `Join my Omnix prediction room: *${roomName}*\n\nClick to join:\nhttps://omnix-app.vercel.app/room/${roomId}`;
 
-  // Create room
-  const createRoom = () => {
-    if (!roomName.trim()) return;
+    const url =
+      "https://wa.me/?text=" + encodeURIComponent(whatsappMsg);
 
-    const id = Date.now(); // unique room ID
-
-    const newRoom = {
-      id,
-      name: roomName,
-      link: ⁠ https://omnix-app.vercel.app/room/${id} ⁠,
-    };
-
-    const updated = [...rooms, newRoom];
-    saveRooms(updated);
-    setRoomName("");
+    window.location.href = url;
   };
 
   return (
@@ -49,19 +37,24 @@ export default function HomePage() {
         textAlign: "center",
       }}
     >
-      <h1>Welcome to Omnix 👋</h1>
+      <h1 style={{ fontSize: "32px", fontWeight: 700 }}>Welcome to Omnix 👋</h1>
 
-      <p style={{ opacity: 0.7 }}>
+      <p style={{ opacity: 0.7, marginBottom: "30px" }}>
         Hello {user.username || "user"} — you're now inside the app.
       </p>
 
-      <p style={{ marginTop: "40px" }}>
-        This is your home dashboard. Features will load here soon.
-      </p>
-
-      {/* --- Create Room Section --- */}
-      <div style={{ marginTop: "60px" }}>
-        <h2>Create a Room</h2>
+      {/* Room creation UI */}
+      <div
+        style={{
+          marginTop: "40px",
+          padding: "20px",
+          border: "1px solid #ddd",
+          borderRadius: "10px",
+          display: "inline-block",
+          width: "300px",
+        }}
+      >
+        <h2 style={{ marginBottom: "20px" }}>Create a Room</h2>
 
         <input
           type="text"
@@ -71,14 +64,14 @@ export default function HomePage() {
           style={{
             padding: "12px",
             fontSize: "16px",
-            width: "280px",
+            width: "100%",
             borderRadius: "6px",
             border: "1px solid #ccc",
           }}
         />
 
         <button
-          onClick={createRoom}
+          onClick={handleCreateRoom}
           style={{
             marginTop: "16px",
             padding: "12px 24px",
@@ -88,58 +81,11 @@ export default function HomePage() {
             borderRadius: "6px",
             cursor: "pointer",
             fontSize: "16px",
+            width: "100%",
           }}
         >
-          Create Room
+          Create Room & Share on WhatsApp
         </button>
-      </div>
-
-      {/* --- Rooms List --- */}
-      <div style={{ marginTop: "60px" }}>
-        <h2>Your Rooms</h2>
-
-        {rooms.length === 0 && (
-          <p style={{ opacity: 0.6 }}>No rooms yet. Create one above.</p>
-        )}
-
-        {rooms.map((room) => (
-          <div
-            key={room.id}
-            style={{
-              margin: "20px auto",
-              padding: "20px",
-              width: "320px",
-              borderRadius: "8px",
-              background: "#f8f8f8",
-              textAlign: "left",
-            }}
-          >
-            <h3>{room.name}</h3>
-            <p style={{ fontSize: "14px", wordBreak: "break-all" }}>
-              {room.link}
-            </p>
-
-            <a
-              href={`https://wa.me/?text=Join my Omnix room: ${encodeURIComponent(
-                room.link
-              )}`}
-              target="_blank"
-              rel="noopener noreferrer"
-              style={{
-                display: "inline-block",
-                marginTop: "10px",
-                padding: "10px 20px",
-                background: "#25D366",
-                color: "white",
-                borderRadius: "6px",
-                textDecoration: "none",
-                fontWeight: "bold",
-              }}
-            >
-              Share on WhatsApp
-            </a>
-          </div>
-        ))}
       </div>
     </main>
   );
