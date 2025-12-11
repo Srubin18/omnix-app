@@ -47,31 +47,6 @@ export default function HomePage() {
   const [timeLeft, setTimeLeft] = useState<{[key: string]: string}>({});
   const [expandedRoom, setExpandedRoom] = useState<string | null>(null);
 
-  useEffect(() => {
-    const userStr = localStorage.getItem("omnix-user");
-    
-    if (!userStr) {
-      router.push("/");
-      return;
-    }
-
-    try {
-      const user = JSON.parse(userStr);
-      setUsername(user.username || user.name || "User");
-      setStats(user.stats || { points: 0, level: 1, roomsCreated: 0 });
-      
-      const roomIdsStr = localStorage.getItem(`omnix-room-ids-${user.username}`);
-      if (roomIdsStr) {
-        const roomIds = JSON.parse(roomIdsStr);
-        fetchRoomsFromDatabase(roomIds);
-      }
-      
-      setIsLoading(false);
-    } catch (error) {
-      router.push("/");
-    }
-  }, [router]);
-
   const fetchRoomsFromDatabase = async (roomIds: string[]) => {
     const rooms: Room[] = [];
     for (const id of roomIds) {
@@ -90,6 +65,32 @@ export default function HomePage() {
     }
     setMyRooms(rooms);
   };
+
+  useEffect(() => {
+    const userStr = localStorage.getItem("omnix-user");
+    
+    if (!userStr) {
+      window.location.href = "/";
+      return;
+    }
+
+    try {
+      const user = JSON.parse(userStr);
+      setUsername(user.username || user.name || "User");
+      setStats(user.stats || { points: 0, level: 1, roomsCreated: 0 });
+      
+      const roomIdsStr = localStorage.getItem(`omnix-room-ids-${user.username}`);
+      if (roomIdsStr) {
+        const roomIds = JSON.parse(roomIdsStr);
+        fetchRoomsFromDatabase(roomIds);
+      }
+      
+      setIsLoading(false);
+    } catch (error) {
+      console.error("Error loading user:", error);
+      setIsLoading(false);
+    }
+  }, []);
 
   const refreshRooms = async () => {
     const roomIdsStr = localStorage.getItem(`omnix-room-ids-${username}`);
@@ -180,7 +181,6 @@ export default function HomePage() {
 
     setCurrentRoom(updatedRoom);
     setNewQuestion("");
-    setPointValue(50);
   };
 
   const removePrediction = (predId: string) => {
@@ -276,7 +276,6 @@ export default function HomePage() {
       if (room.id === roomId) {
         const updatedPredictions = room.predictions.map(pred => {
           if (pred.id === predictionId) {
-            // Find winners
             const winners = pred.responses
               ?.filter(r => r.answer.toLowerCase().trim() === answer.toLowerCase().trim())
               .map(r => r.username) || [];
@@ -288,14 +287,12 @@ export default function HomePage() {
 
         const updatedRoom = { ...room, predictions: updatedPredictions };
         
-        // Update in database
         await fetch("/api/rooms", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ room: updatedRoom })
         });
 
-        // Award points to winners
         const resolvedPred = updatedPredictions.find(p => p.id === predictionId);
         if (resolvedPred?.winners && resolvedPred.winners.length > 0) {
           for (const winner of resolvedPred.winners) {
@@ -306,26 +303,14 @@ export default function HomePage() {
                 username: winner, 
                 points: resolvedPred.pointValue,
                 correct: 1,
-                total: 0
+                total: 1
               })
             });
           }
         }
 
-        // Update all participants total predictions
         for (const response of resolvedPred?.responses || []) {
           if (!resolvedPred?.winners?.includes(response.username)) {
-            await fetch("/api/leaderboard", {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ 
-                username: response.username, 
-                points: 0,
-                correct: 0,
-                total: 1
-              })
-            });
-          } else {
             await fetch("/api/leaderboard", {
               method: "POST",
               headers: { "Content-Type": "application/json" },
@@ -346,15 +331,6 @@ export default function HomePage() {
     
     setMyRooms(updatedRooms);
 
-    const userStr = localStorage.getItem("omnix-user");
-    if (userStr) {
-      const user = JSON.parse(userStr);
-      user.stats.points = (user.stats.points || 0) + 10;
-      localStorage.setItem("omnix-user", JSON.stringify(user));
-      setStats(user.stats);
-    }
-
-    // Share results on WhatsApp
     const room = updatedRooms.find(r => r.id === roomId);
     const pred = room?.predictions.find(p => p.id === predictionId);
     if (pred && pred.winners && pred.winners.length > 0) {
@@ -378,7 +354,10 @@ export default function HomePage() {
   if (isLoading) {
     return (
       <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", background: "#000" }}>
-        <p style={{ color: "#8A2BE2", fontSize: "18px" }}>Loading...</p>
+        <div style={{ textAlign: "center" }}>
+          <div style={{ fontSize: "48px", marginBottom: "15px" }}>🔮</div>
+          <p style={{ color: "#8A2BE2", fontSize: "18px" }}>Loading...</p>
+        </div>
       </div>
     );
   }
@@ -413,13 +392,13 @@ export default function HomePage() {
             
             <div style={{ display: "flex", gap: "10px" }}>
               <button
-                onClick={() => router.push("/leaderboard")}
+                onClick={() => window.location.href = "/leaderboard"}
                 style={{ padding: "8px 16px", background: "rgba(138,43,226,0.1)", color: "#8A2BE2", border: "1px solid rgba(138,43,226,0.3)", borderRadius: "6px", fontSize: "13px", cursor: "pointer" }}
               >
                 🏆 Leaderboard
               </button>
               <button
-                onClick={() => { localStorage.removeItem("omnix-user"); router.push("/"); }}
+                onClick={() => { localStorage.removeItem("omnix-user"); window.location.href = "/"; }}
                 style={{ padding: "8px 16px", background: "transparent", color: "rgba(255,255,255,0.5)", border: "1px solid rgba(255,255,255,0.2)", borderRadius: "6px", fontSize: "13px", cursor: "pointer" }}
               >
                 Logout
@@ -467,52 +446,71 @@ export default function HomePage() {
               </button>
             </div>
 
-            <div style={{ display: "flex", gap: "10px", marginBottom: "15px", flexWrap: "wrap" }}>
+            {/* Question Input */}
+            <div style={{ marginBottom: "20px" }}>
               <input
                 type="text"
                 value={newQuestion}
                 onChange={(e) => setNewQuestion(e.target.value)}
-                placeholder="Enter prediction question..."
-                style={{ flex: 1, minWidth: "200px", padding: "14px", borderRadius: "8px", border: "1px solid rgba(255,255,255,0.1)", background: "rgba(255,255,255,0.05)", color: "#FFF", fontSize: "15px" }}
+                placeholder="Enter prediction question (e.g., 'Who will win the match?')"
+                style={{ width: "100%", padding: "14px", borderRadius: "8px", border: "1px solid rgba(255,255,255,0.1)", background: "rgba(255,255,255,0.05)", color: "#FFF", fontSize: "15px", marginBottom: "15px", boxSizing: "border-box" }}
                 onKeyPress={(e) => e.key === "Enter" && addPrediction()}
               />
-              <select
-                value={pointValue}
-                onChange={(e) => setPointValue(Number(e.target.value))}
-                style={{ padding: "14px", borderRadius: "8px", border: "1px solid rgba(255,196,0,0.3)", background: "rgba(255,196,0,0.1)", color: "#FFC400", fontSize: "14px", fontWeight: "600", cursor: "pointer" }}
-              >
-                <option value={10}>🏆 10 pts</option>
-                <option value={25}>🏆 25 pts</option>
-                <option value={50}>🏆 50 pts</option>
-                <option value={100}>🏆 100 pts</option>
-                <option value={200}>🏆 200 pts</option>
-                <option value={500}>🏆 500 pts</option>
-              </select>
-              <button
-                onClick={addPrediction}
-                style={{ padding: "14px 20px", background: "rgba(0,230,163,0.1)", color: "#00E6A3", border: "1px solid rgba(0,230,163,0.3)", borderRadius: "8px", fontSize: "15px", fontWeight: "600", cursor: "pointer" }}
-              >
-                + Add
-              </button>
+              
+              {/* Settings Row */}
+              <div style={{ display: "flex", gap: "15px", alignItems: "center", flexWrap: "wrap", background: "rgba(255,255,255,0.03)", padding: "15px", borderRadius: "8px" }}>
+                <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+                  <span style={{ color: "#FFC400", fontSize: "14px" }}>🏆 Points:</span>
+                  <select
+                    value={pointValue}
+                    onChange={(e) => setPointValue(Number(e.target.value))}
+                    style={{ padding: "10px 15px", borderRadius: "8px", border: "2px solid rgba(255,196,0,0.5)", background: "rgba(255,196,0,0.15)", color: "#FFC400", fontSize: "15px", fontWeight: "700", cursor: "pointer" }}
+                  >
+                    <option value={10}>10 pts</option>
+                    <option value={25}>25 pts</option>
+                    <option value={50}>50 pts</option>
+                    <option value={100}>100 pts</option>
+                    <option value={200}>200 pts</option>
+                    <option value={500}>500 pts</option>
+                  </select>
+                </div>
+                
+                <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+                  <span style={{ color: "#00AEEF", fontSize: "14px" }}>⏳ Deadline:</span>
+                  <span style={{ color: "#00AEEF", fontSize: "15px", fontWeight: "600" }}>24 hours</span>
+                </div>
+                
+                <button
+                  onClick={addPrediction}
+                  style={{ marginLeft: "auto", padding: "12px 24px", background: "linear-gradient(135deg, #00E6A3, #00AEEF)", color: "#000", border: "none", borderRadius: "8px", fontSize: "15px", fontWeight: "700", cursor: "pointer" }}
+                >
+                  + Add Question
+                </button>
+              </div>
             </div>
 
+            {/* Predictions List */}
             {currentRoom.predictions.length > 0 && (
               <div style={{ marginBottom: "20px" }}>
-                <p style={{ color: "rgba(255,255,255,0.6)", fontSize: "13px", marginBottom: "10px" }}>
-                  🔮 Predictions ({currentRoom.predictions.length}):
+                <p style={{ color: "rgba(255,255,255,0.6)", fontSize: "14px", marginBottom: "12px" }}>
+                  🔮 Questions ({currentRoom.predictions.length}):
                 </p>
                 <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
                   {currentRoom.predictions.map((pred, i) => (
-                    <div key={pred.id} style={{ background: "rgba(255,255,255,0.03)", padding: "15px", borderRadius: "8px", display: "flex", justifyContent: "space-between", alignItems: "center", border: "1px solid rgba(138,43,226,0.2)" }}>
-                      <div>
-                        <span style={{ color: "#8A2BE2", marginRight: "10px" }}>{i + 1}.</span>
-                        <span style={{ color: "#FFF" }}>{pred.question}</span>
-                        <span style={{ color: "#FFC400", fontSize: "12px", marginLeft: "10px", background: "rgba(255,196,0,0.1)", padding: "2px 8px", borderRadius: "10px" }}>🏆 {pred.pointValue} pts</span>
-                        <span style={{ color: "rgba(255,255,255,0.4)", fontSize: "12px", marginLeft: "10px" }}>⏳ 24h</span>
+                    <div key={pred.id} style={{ background: "rgba(255,255,255,0.05)", padding: "15px", borderRadius: "10px", display: "flex", justifyContent: "space-between", alignItems: "center", border: "1px solid rgba(138,43,226,0.3)" }}>
+                      <div style={{ flex: 1 }}>
+                        <div style={{ display: "flex", alignItems: "center", gap: "10px", marginBottom: "5px" }}>
+                          <span style={{ color: "#8A2BE2", fontWeight: "700" }}>{i + 1}.</span>
+                          <span style={{ color: "#FFF", fontSize: "15px" }}>{pred.question}</span>
+                        </div>
+                        <div style={{ display: "flex", gap: "10px" }}>
+                          <span style={{ color: "#FFC400", fontSize: "12px", background: "rgba(255,196,0,0.1)", padding: "3px 10px", borderRadius: "12px" }}>🏆 {pred.pointValue} pts</span>
+                          <span style={{ color: "#00AEEF", fontSize: "12px", background: "rgba(0,174,239,0.1)", padding: "3px 10px", borderRadius: "12px" }}>⏳ 24h</span>
+                        </div>
                       </div>
                       <button
                         onClick={() => removePrediction(pred.id)}
-                        style={{ padding: "5px 10px", background: "rgba(255,45,146,0.1)", color: "#FF2D92", border: "none", borderRadius: "4px", fontSize: "12px", cursor: "pointer" }}
+                        style={{ padding: "8px 12px", background: "rgba(255,45,146,0.1)", color: "#FF2D92", border: "none", borderRadius: "6px", fontSize: "14px", cursor: "pointer" }}
                       >
                         ✕
                       </button>
@@ -522,6 +520,7 @@ export default function HomePage() {
               </div>
             )}
 
+            {/* Share Button */}
             <button
               onClick={shareOnWhatsApp}
               disabled={currentRoom.predictions.length === 0 || saving}
@@ -542,7 +541,7 @@ export default function HomePage() {
               }}
             >
               <span>📱</span>
-              {saving ? "Saving..." : currentRoom.predictions.length > 0 ? "Share on WhatsApp" : "Add predictions to share"}
+              {saving ? "Saving..." : currentRoom.predictions.length > 0 ? "Share on WhatsApp" : "Add questions to share"}
             </button>
           </div>
         )}
@@ -578,7 +577,7 @@ export default function HomePage() {
                         <div key={pred.id} style={{ background: "rgba(0,0,0,0.3)", padding: "15px", borderRadius: "8px", border: pred.resolved ? "1px solid rgba(0,230,163,0.3)" : "1px solid rgba(255,255,255,0.1)" }}>
                           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: "10px" }}>
                             <p style={{ color: "#FFF", fontSize: "14px", margin: 0, flex: 1 }}>{pred.question}</p>
-                            <span style={{ color: "#FFC400", fontSize: "12px", background: "rgba(255,196,0,0.1)", padding: "2px 8px", borderRadius: "10px", marginLeft: "10px", whiteSpace: "nowrap" }}>🏆 {pred.pointValue || 50} pts</span>
+                            <span style={{ color: "#FFC400", fontSize: "12px", background: "rgba(255,196,0,0.1)", padding: "3px 10px", borderRadius: "10px", marginLeft: "10px", whiteSpace: "nowrap" }}>🏆 {pred.pointValue || 50} pts</span>
                           </div>
                           
                           <div style={{ display: "flex", alignItems: "center", gap: "10px", flexWrap: "wrap", marginBottom: "10px" }}>
@@ -596,7 +595,6 @@ export default function HomePage() {
                             </span>
                           </div>
 
-                          {/* Winners display */}
                           {pred.resolved && pred.winners && pred.winners.length > 0 && (
                             <div style={{ background: "rgba(0,230,163,0.1)", padding: "10px", borderRadius: "6px", marginBottom: "10px" }}>
                               <p style={{ color: "#00E6A3", fontSize: "13px", margin: 0 }}>
@@ -613,7 +611,6 @@ export default function HomePage() {
                             </div>
                           )}
 
-                          {/* Response Stats */}
                           {totalResponses > 0 && (
                             <div style={{ marginBottom: "10px" }}>
                               <div 
@@ -623,7 +620,6 @@ export default function HomePage() {
                                 {expandedRoom === pred.id ? "▼ Hide responses" : "▶ Show responses"}
                               </div>
                               
-                              {/* Stats breakdown */}
                               <div style={{ display: "flex", gap: "8px", flexWrap: "wrap", marginBottom: "8px" }}>
                                 {Object.entries(responseStats).map(([answer, count]) => (
                                   <span key={answer} style={{ background: "rgba(138,43,226,0.1)", color: "#8A2BE2", padding: "4px 10px", borderRadius: "12px", fontSize: "11px" }}>
@@ -632,7 +628,6 @@ export default function HomePage() {
                                 ))}
                               </div>
                               
-                              {/* Individual responses */}
                               {expandedRoom === pred.id && (
                                 <div style={{ background: "rgba(0,0,0,0.2)", padding: "10px", borderRadius: "6px", marginTop: "8px" }}>
                                   {pred.responses?.map((r, i) => {
