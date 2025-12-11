@@ -43,8 +43,8 @@ export default function RoomPage() {
   const [submittedPredictions, setSubmittedPredictions] = useState<string[]>([]);
   const [submitting, setSubmitting] = useState(false);
   const [timeLeft, setTimeLeft] = useState<{[key: string]: string}>({});
+  const [showStats, setShowStats] = useState<{[key: string]: boolean}>({});
 
-  // Get room ID from params
   useEffect(() => {
     if (params?.id) {
       const id = Array.isArray(params.id) ? params.id[0] : params.id;
@@ -52,7 +52,6 @@ export default function RoomPage() {
     }
   }, [params]);
 
-  // Check auth
   useEffect(() => {
     if (!roomId) return;
     
@@ -77,7 +76,6 @@ export default function RoomPage() {
     }
   }, [roomId]);
 
-  // Load room from database
   useEffect(() => {
     if (!roomId || !isLoggedIn) return;
 
@@ -111,7 +109,6 @@ export default function RoomPage() {
     loadRoom();
   }, [roomId, isLoggedIn, username]);
 
-  // Update countdown timers
   useEffect(() => {
     const interval = setInterval(() => {
       if (!room) return;
@@ -183,7 +180,32 @@ export default function RoomPage() {
     }
   };
 
-  // Loading state
+  const getResponseStats = (responses: PredictionResponse[]) => {
+    const stats: {[key: string]: number} = {};
+    responses.forEach(r => {
+      const answer = r.answer.toLowerCase().trim();
+      stats[answer] = (stats[answer] || 0) + 1;
+    });
+    return stats;
+  };
+
+  const refreshRoom = async () => {
+    if (!roomId) return;
+    setLoadingRoom(true);
+    try {
+      const response = await fetch(`/api/rooms?id=${roomId}`);
+      const data = await response.json();
+      if (response.ok && data.room) {
+        const parsedRoom = typeof data.room === "string" ? JSON.parse(data.room) : data.room;
+        setRoom(parsedRoom);
+      }
+    } catch (error) {
+      console.error("Error refreshing room:", error);
+    } finally {
+      setLoadingRoom(false);
+    }
+  };
+
   if (!roomId || checkingAuth || (isLoggedIn && loadingRoom)) {
     return (
       <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", background: "#000" }}>
@@ -195,7 +217,6 @@ export default function RoomPage() {
     );
   }
 
-  // Not logged in
   if (!isLoggedIn) {
     return (
       <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", background: "#000", padding: "20px" }}>
@@ -214,7 +235,6 @@ export default function RoomPage() {
     );
   }
 
-  // Room not found
   if (roomNotFound) {
     return (
       <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", background: "#000", padding: "20px" }}>
@@ -233,7 +253,6 @@ export default function RoomPage() {
     );
   }
 
-  // Room loaded
   return (
     <div style={{ minHeight: "100vh", background: "#000", padding: "20px" }}>
       <div style={{ maxWidth: "600px", margin: "0 auto", paddingTop: "20px" }}>
@@ -250,8 +269,16 @@ export default function RoomPage() {
             </div>
           </div>
           
-          <div style={{ background: "rgba(0,230,163,0.1)", padding: "10px 15px", borderRadius: "8px" }}>
-            <p style={{ color: "#00E6A3", fontSize: "13px", margin: 0 }}>👤 Playing as <strong>{username}</strong></p>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+            <div style={{ background: "rgba(0,230,163,0.1)", padding: "10px 15px", borderRadius: "8px" }}>
+              <p style={{ color: "#00E6A3", fontSize: "13px", margin: 0 }}>👤 Playing as <strong>{username}</strong></p>
+            </div>
+            <button
+              onClick={refreshRoom}
+              style={{ padding: "8px 12px", background: "rgba(0,174,239,0.1)", color: "#00AEEF", border: "1px solid rgba(0,174,239,0.3)", borderRadius: "6px", fontSize: "12px", cursor: "pointer" }}
+            >
+              🔄 Refresh
+            </button>
           </div>
         </div>
 
@@ -263,9 +290,12 @@ export default function RoomPage() {
             const hasSubmitted = submittedPredictions.includes(pred.id) || pred.responses?.some(r => r.username === username);
             const userResponse = pred.responses?.find(r => r.username === username);
             const isExpired = timeLeft[pred.id] === "Expired";
+            const totalResponses = pred.responses?.length || 0;
+            const responseStats = getResponseStats(pred.responses || []);
+            const isCorrect = pred.resolved && userResponse?.answer.toLowerCase().trim() === pred.correctAnswer?.toLowerCase().trim();
 
             return (
-              <div key={pred.id} style={{ background: "rgba(255,255,255,0.03)", padding: "20px", borderRadius: "12px", marginBottom: "15px", border: "1px solid rgba(138,43,226,0.2)" }}>
+              <div key={pred.id} style={{ background: "rgba(255,255,255,0.03)", padding: "20px", borderRadius: "12px", marginBottom: "15px", border: pred.resolved ? (isCorrect ? "1px solid rgba(0,230,163,0.4)" : "1px solid rgba(255,45,146,0.3)") : "1px solid rgba(138,43,226,0.2)" }}>
                 <div style={{ display: "flex", alignItems: "flex-start", gap: "12px", marginBottom: "12px" }}>
                   <span style={{ background: "rgba(138,43,226,0.2)", color: "#8A2BE2", width: "28px", height: "28px", borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "14px", fontWeight: "600" }}>
                     {index + 1}
@@ -273,28 +303,69 @@ export default function RoomPage() {
                   <h3 style={{ color: "#FFF", fontSize: "15px", margin: 0, fontWeight: "500" }}>{pred.question}</h3>
                 </div>
 
-                <div style={{ marginBottom: "15px" }}>
-                  <span style={{ background: isExpired ? "rgba(255,45,146,0.1)" : "rgba(255,196,0,0.1)", color: isExpired ? "#FF2D92" : "#FFC400", padding: "5px 12px", borderRadius: "20px", fontSize: "12px" }}>
-                    {isExpired ? "⏰ Closed" : `⏳ ${timeLeft[pred.id] || "24h"}`}
-                  </span>
-                  <span style={{ color: "rgba(255,255,255,0.4)", fontSize: "12px", marginLeft: "10px" }}>
-                    👥 {pred.responses?.length || 0} predictions
+                <div style={{ display: "flex", alignItems: "center", gap: "10px", marginBottom: "12px", flexWrap: "wrap" }}>
+                  {pred.resolved ? (
+                    <span style={{ background: "rgba(0,230,163,0.1)", color: "#00E6A3", padding: "5px 12px", borderRadius: "20px", fontSize: "12px" }}>
+                      ✅ Answer: {pred.correctAnswer}
+                    </span>
+                  ) : (
+                    <span style={{ background: isExpired ? "rgba(255,45,146,0.1)" : "rgba(255,196,0,0.1)", color: isExpired ? "#FF2D92" : "#FFC400", padding: "5px 12px", borderRadius: "20px", fontSize: "12px" }}>
+                      {isExpired ? "⏰ Closed" : `⏳ ${timeLeft[pred.id] || "24h"}`}
+                    </span>
+                  )}
+                  <span style={{ color: "rgba(255,255,255,0.4)", fontSize: "12px" }}>
+                    👥 {totalResponses} prediction{totalResponses !== 1 ? "s" : ""}
                   </span>
                 </div>
 
-                {userResponse && (
-                  <div style={{ background: "rgba(138,43,226,0.1)", padding: "12px", borderRadius: "8px", marginBottom: "12px" }}>
-                    <p style={{ color: "#8A2BE2", fontSize: "14px", margin: 0 }}>Your prediction: <strong>{userResponse.answer}</strong></p>
+                {/* Response Stats - visible to all */}
+                {totalResponses > 0 && (
+                  <div style={{ marginBottom: "12px" }}>
+                    <div 
+                      onClick={() => setShowStats({ ...showStats, [pred.id]: !showStats[pred.id] })}
+                      style={{ cursor: "pointer", color: "#00AEEF", fontSize: "12px", marginBottom: "8px" }}
+                    >
+                      {showStats[pred.id] ? "▼ Hide stats" : "▶ Show live stats"}
+                    </div>
+                    
+                    {showStats[pred.id] && (
+                      <div style={{ background: "rgba(0,0,0,0.3)", padding: "12px", borderRadius: "8px" }}>
+                        <p style={{ color: "rgba(255,255,255,0.6)", fontSize: "11px", margin: "0 0 8px 0" }}>Current predictions:</p>
+                        <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
+                          {Object.entries(responseStats).map(([answer, count]) => {
+                            const percentage = Math.round((count / totalResponses) * 100);
+                            return (
+                              <div key={answer} style={{ background: "rgba(138,43,226,0.15)", padding: "8px 12px", borderRadius: "8px", minWidth: "80px" }}>
+                                <p style={{ color: "#8A2BE2", fontSize: "13px", fontWeight: "600", margin: 0 }}>{answer}</p>
+                                <p style={{ color: "#FFF", fontSize: "16px", fontWeight: "700", margin: "4px 0 0 0" }}>{percentage}%</p>
+                                <p style={{ color: "rgba(255,255,255,0.4)", fontSize: "10px", margin: "2px 0 0 0" }}>{count} vote{count !== 1 ? "s" : ""}</p>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    )}
                   </div>
                 )}
 
-                {!hasSubmitted && !isExpired && (
+                {/* User's prediction */}
+                {userResponse && (
+                  <div style={{ background: isCorrect ? "rgba(0,230,163,0.1)" : pred.resolved ? "rgba(255,45,146,0.1)" : "rgba(138,43,226,0.1)", padding: "12px", borderRadius: "8px", marginBottom: "12px" }}>
+                    <p style={{ color: isCorrect ? "#00E6A3" : pred.resolved ? "#FF2D92" : "#8A2BE2", fontSize: "14px", margin: 0 }}>
+                      Your prediction: <strong>{userResponse.answer}</strong>
+                      {pred.resolved && (isCorrect ? " ✅ +50 pts!" : " ❌")}
+                    </p>
+                  </div>
+                )}
+
+                {/* Submit prediction */}
+                {!hasSubmitted && !isExpired && !pred.resolved && (
                   <div style={{ display: "flex", gap: "10px" }}>
                     <input
                       type="text"
                       value={userAnswers[pred.id] || ""}
                       onChange={(e) => setUserAnswers({ ...userAnswers, [pred.id]: e.target.value })}
-                      placeholder="Your prediction..."
+                      placeholder="Enter your prediction..."
                       style={{ flex: 1, padding: "12px", borderRadius: "8px", border: "1px solid rgba(255,255,255,0.1)", background: "rgba(255,255,255,0.05)", color: "#FFF", fontSize: "14px" }}
                     />
                     <button
@@ -302,18 +373,35 @@ export default function RoomPage() {
                       disabled={submitting}
                       style={{ padding: "12px 18px", background: "linear-gradient(135deg, #8A2BE2, #00AEEF)", color: "#FFF", border: "none", borderRadius: "8px", fontSize: "14px", fontWeight: "600", cursor: "pointer" }}
                     >
-                      Submit
+                      {submitting ? "..." : "Submit"}
                     </button>
                   </div>
+                )}
+
+                {isExpired && !userResponse && !pred.resolved && (
+                  <p style={{ color: "rgba(255,255,255,0.4)", fontSize: "13px", margin: 0, fontStyle: "italic" }}>
+                    ⏰ Prediction closed
+                  </p>
                 )}
               </div>
             );
           })}
         </div>
 
+        {/* Share button */}
+        <button
+          onClick={() => {
+            const message = `🔮 Join us on Omnix!\n\n📝 *${room?.name}*\n\n👉 Click to predict:\nhttps://omnix-app.vercel.app/room/${roomId}`;
+            window.open(`https://wa.me/?text=${encodeURIComponent(message)}`, "_blank");
+          }}
+          style={{ marginTop: "20px", width: "100%", padding: "16px", background: "rgba(37,211,102,0.1)", color: "#25D366", border: "1px solid rgba(37,211,102,0.3)", borderRadius: "10px", fontSize: "15px", fontWeight: "600", cursor: "pointer" }}
+        >
+          📱 Invite More Friends
+        </button>
+
         <button
           onClick={() => router.push("/home")}
-          style={{ marginTop: "20px", width: "100%", padding: "14px", background: "transparent", color: "rgba(255,255,255,0.5)", border: "1px solid rgba(255,255,255,0.2)", borderRadius: "8px", fontSize: "14px", cursor: "pointer" }}
+          style={{ marginTop: "10px", width: "100%", padding: "14px", background: "transparent", color: "rgba(255,255,255,0.5)", border: "1px solid rgba(255,255,255,0.2)", borderRadius: "8px", fontSize: "14px", cursor: "pointer" }}
         >
           ← Back to Home
         </button>
