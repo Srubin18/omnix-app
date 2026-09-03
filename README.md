@@ -1,5 +1,22 @@
 This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
 
+## Multi-AI Question Tool
+
+Visit [`/ask`](http://localhost:3000/ask) to ask one question and get answers from six AI providers side by side: Anthropic, OpenAI, Gemini, Perplexity, Kimi and Grok (xAI).
+
+Each provider needs an API key set as an environment variable (locally in `.env.local`, or in your Vercel project settings). Providers without a key are simply greyed out — you can run with any subset.
+
+| Provider | API key variable | Default model | Override model with |
+| --- | --- | --- | --- |
+| Anthropic | `ANTHROPIC_API_KEY` | `claude-opus-5` | `ANTHROPIC_MODEL` |
+| OpenAI | `OPENAI_API_KEY` | `gpt-5.1` | `OPENAI_MODEL` |
+| Gemini | `GEMINI_API_KEY` (or `GOOGLE_API_KEY`) | `gemini-2.5-flash` | `GEMINI_MODEL` |
+| Perplexity | `PERPLEXITY_API_KEY` | `sonar` | `PERPLEXITY_MODEL` |
+| Kimi (Moonshot) | `KIMI_API_KEY` (or `MOONSHOT_API_KEY`) | `kimi-latest` | `KIMI_MODEL` |
+| Grok (xAI) | `XAI_API_KEY` (or `GROK_API_KEY`) | `grok-4` | `XAI_MODEL` |
+
+`kimi-latest` always points at Moonshot's newest Kimi model — set `KIMI_MODEL` to pin a specific version (e.g. a K3 model id once released). Get keys from each provider's console: [Anthropic](https://console.anthropic.com), [OpenAI](https://platform.openai.com), [Google AI Studio](https://aistudio.google.com), [Perplexity](https://www.perplexity.ai/settings/api), [Moonshot](https://platform.moonshot.ai), [xAI](https://console.x.ai).
+
 ## Getting Started
 
 First, run the development server:
